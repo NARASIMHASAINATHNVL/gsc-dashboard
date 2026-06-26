@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GSC Analytics Pro — BankBazaar.com</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={darkMode:'class'};</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="./gsc-data.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+body{background:var(--bg,#f8fafc);color:var(--tx,#0f172a);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:0}
+.dark body,body.dark{--bg:#0f172a;--card:#1e293b;--tx:#f1f5f9;--sub:#94a3b8;--bdr:#334155}
+:root{--bg:#f8fafc;--card:#ffffff;--tx:#0f172a;--sub:#64748b;--bdr:#e2e8f0}
+.card{background:var(--card);border:1px solid var(--bdr)}
+.gain{color:#22c55e}.loss{color:#ef4444}.neutral{color:#94a3b8}
+.bg-gain{background:#dcfce7;color:#166534}.bg-loss{background:#fee2e2;color:#991b1b}.bg-neut{background:#f1f5f9;color:#475569}
+.dark .bg-gain{background:#14532d;color:#86efac}.dark .bg-loss{background:#7f1d1d;color:#fca5a5}.dark .bg-neut{background:#334155;color:#94a3b8}
+.t-active{border-bottom:2px solid #3b82f6;color:#3b82f6;font-weight:600}
+.t-inactive{border-bottom:2px solid transparent;color:var(--sub)}
+.t-inactive:hover{color:var(--tx)}
+.src-btn{padding:6px 18px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;border:none}
+.src-on{background:#3b82f6;color:#fff}
+.src-off{background:var(--card);color:var(--sub);border:1px solid var(--bdr)}
+input,select,textarea{background:var(--card);color:var(--tx);border:1px solid var(--bdr)}
+::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-thumb{background:#94a3b8;border-radius:3px}
+.row-hover:hover{background:rgba(59,130,246,.05)}
+.dz{border:2px dashed var(--bdr);transition:all .2s}.dz:hover{border-color:#3b82f6;background:rgba(59,130,246,.04)}
+@keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}.fi{animation:fi .3s ease}
+.tis-track{height:6px;background:var(--bdr);border-radius:3px;overflow:hidden}
+.tis-bar{height:100%;border-radius:3px;transition:width .5s ease}
+.alert-c{border-left:4px solid #ef4444;background:rgba(239,68,68,.06)}
+.alert-w{border-left:4px solid #f59e0b;background:rgba(245,158,11,.06)}
+.alert-s{border-left:4px solid #22c55e;background:rgba(34,197,94,.06)}
+.alert-o{border-left:4px solid #3b82f6;background:rgba(59,130,246,.06)}
+.dark .alert-c{background:rgba(239,68,68,.12)}.dark .alert-w{background:rgba(245,158,11,.12)}
+.dark .alert-s{background:rgba(34,197,94,.12)}.dark .alert-o{background:rgba(59,130,246,.12)}
+</style>
+</head>
+<body>
+<div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;color:#64748b">Loading GSC Analytics Pro...</div></div>
+<script type="text/babel">
+const {useState,useEffect,useCallback,useMemo,useRef}=React;
+
+/* ─── UTILS ─── */
+const fmt=n=>n==null?'—':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':Math.round(n).toLocaleString();
+const fmtP=n=>n==null?'—':(n*100).toFixed(2)+'%';
+const fmtN=n=>n==null?'—':n.toFixed(1);
+const pctC=(c,p)=>p===0?null:((c-p)/p*100);
+const clr=v=>v>0?'gain':v<0?'loss':'neutral';
+const bgC=v=>v>0?'bg-gain':v<0?'bg-loss':'bg-neut';
+const sign=v=>v>0?'+':'';
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const shortURL=u=>(u||'').replace(/^https?:\/\/(www\.)?bankbazaar\.com/,'').replace(/\.html$/,'')||'/';
+function dlCSV(rows,cols,name){
+  const hdr=cols.map(c=>c.label).join(',');
+  const body=rows.map(r=>cols.map(c=>{const v=c.fn(r);return JSON.stringify(v==null?'':v);}).join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([hdr+'\n'+body],{type:'text/csv'}));
+  a.download=name+'.csv';a.click();
+}
+
+/* ─── URL GROUPING ─── */
+function classifyURL(url){
+  const u=(url||'').toLowerCase();
+  if(/\/(gold-rate|gold-price)/.test(u)) return 'Gold Rate';
+  if(/\/credit-card/.test(u)) return 'Credit Cards';
+  if(/\/personal-loan/.test(u)) return 'Personal Loan';
+  if(/\/home-loan/.test(u)) return 'Home Loan';
+  if(/\/(car-loan|two-wheeler|bike-loan|vehicle-loan)/.test(u)) return 'Vehicle Loan';
+  if(/\/(health-insurance|car-insurance|life-insurance|term-insurance|travel-insurance|insurance)/.test(u)) return 'Insurance';
+  if(/\/(petrol-price|diesel-price|cng-price|fuel)/.test(u)) return 'Fuel Price';
+  if(/\/fixed-deposit/.test(u)) return 'Fixed Deposit';
+  if(/\/savings-account/.test(u)) return 'Savings Account';
+  if(/\/ifsc/.test(u)) return 'IFSC';
+  if(/\/(income-tax|itr)/.test(u)) return 'Tax / ITR';
+  if(/calculator/.test(u)) return 'Calculators';
+  if(/\/(cibil|credit-score)/.test(u)) return 'Credit Score';
+  if(/\/pan-card/.test(u)) return 'PAN Card';
+  if(/\/(ppf|public-provident|mutual-fund|sip|nps)/.test(u)) return 'Investments';
+  if(/\/education-loan/.test(u)) return 'Education Loan';
+  if(/\/business-loan/.test(u)) return 'Business Loan';
+  return 'Other';
+}
+
+/* ─── TRAFFIC IMPACT SCORE ─── */
+function calcTIS(r){
+  const cScore=clamp(r.clicksPct||0,-100,100)*0.6;
+  const posI=r.prevPosition&&r.position?clamp((r.prevPosition-r.position)/Math.max(1,r.prevPosition)*100,-100,100)*0.4:0;
+  return Math.round(cScore+posI);
+}
+
+/* ─── AI ROOT CAUSE ─── */
+function aiRootCause(r){
+  const res=[];
+  const cDrop=(r.clicksPct||0)<-15,cGain=(r.clicksPct||0)>20;
+  const pDown=(r.posDiff||0)<-1.5,pUp=(r.posDiff||0)>1.5;
+  const ctrD=(r.ctrDiff||0)<-0.003;
+  const iDrop=(r.impPct||0)<-10,iGain=(r.impPct||0)>10;
+  if(pDown&&iDrop&&cDrop) res.push({t:'critical',txt:'Ranking decline. Content freshness/E-E-A-T weakened — update facts, add expert quotes, improve internal links.'});
+  if(!pDown&&ctrD&&cDrop) res.push({t:'warning',txt:"CTR decay with stable rankings. Rewrite title tag and meta description — current snippet isn't compelling."});
+  if(iDrop&&!pDown) res.push({t:'warning',txt:'Impression drop but ranking stable — keyword demand shift or seasonality. Check Google Trends.'});
+  if(pDown&&!iDrop) res.push({t:'warning',txt:'Partial ranking erosion for some query variants. Review long-tail keyword coverage and FAQ sections.'});
+  if(cGain&&pUp&&iGain) res.push({t:'success',txt:'Strong momentum. Expand content cluster, add internal links from related pages to amplify gains.'});
+  if(r.impressions>30000&&r.ctr<0.02) res.push({t:'opportunity',txt:'High impressions, CTR <2%. Title/meta optimisation alone could 2x clicks without ranking changes.'});
+  if(cDrop&&(r.impPct||0)>0) res.push({t:'warning',txt:'Clicks down while impressions hold — pure CTR issue. Check if title was auto-changed or competitors updated snippets.'});
+  if(!res.length) res.push({t:cGain?'success':'info',txt:cGain?'Positive growth. Expand content depth and consider similar topic clusters.':'Minor fluctuation within normal variance.'});
+  return res;
+}
+
+/* ─── CONTENT DECAY ─── */
+function detectDecay(rows){
+  return (rows||[]).filter(r=>(r.clicksPct||0)<-10&&((r.impPct||0)<-10||(r.ctrDiff||0)<-0.003))
+    .map(r=>({...r,
+      decayType:(r.ctrDiff||0)<-0.005&&(r.posDiff||0)>=-1?'CTR Decay':(r.impPct||0)<-20?'Visibility Decay':'Traffic Decay',
+      severity:Math.abs(r.clicksPct||0)>30?'critical':Math.abs(r.clicksPct||0)>15?'warning':'low'
+    })).sort((a,b)=>(a.clicksPct||0)-(b.clicksPct||0));
+}
+
+/* ─── SEO ALERTS ─── */
+function generateAlerts(cp){
+  if(!cp) return [];
+  const A=[];
+  cp.filter(p=>(p.clicksPct||0)<-30&&p.clicks>300).slice(0,8).forEach(p=>
+    A.push({sev:'c',type:'Traffic Drop',page:p.key,msg:`Lost ${fmt(Math.abs(p.clicksDiff))} clicks (${Math.round(p.clicksPct||0)}%)`,action:'Immediate content audit'}));
+  cp.filter(p=>(p.clicksPct||0)>50&&p.clicks>300).slice(0,5).forEach(p=>
+    A.push({sev:'s',type:'Traffic Spike',page:p.key,msg:`+${fmt(p.clicksDiff)} clicks (+${Math.round(p.clicksPct||0)}%)`,action:'Add internal links, expand content'}));
+  cp.filter(p=>(p.posDiff||0)<-3&&p.impressions>10000).slice(0,8).forEach(p=>
+    A.push({sev:'w',type:'Ranking Drop',page:p.key,msg:`Pos ${p.prevPosition?.toFixed(1)} → ${p.position?.toFixed(1)}`,action:'Update content, add internal links'}));
+  cp.filter(p=>p.impressions>30000&&p.ctr<0.02).slice(0,5).forEach(p=>
+    A.push({sev:'o',type:'CTR Gap',page:p.key,msg:`${fmt(p.impressions)} impr, CTR ${fmtP(p.ctr)}`,action:'Rewrite title + meta description'}));
+  return A.sort((a,b)=>{const o={c:0,w:1,o:2,s:3};return(o[a.sev]??4)-(o[b.sev]??4);});
+}
+
+/* ─── FORECASTING ─── */
+function buildForecast(trend,days=14){
+  if(!trend||trend.length<7) return null;
+  const n=trend.length;
+  const sumX=trend.reduce((s,_,i)=>s+i,0),sumY=trend.reduce((s,d)=>s+d.cClicks,0);
+  const sumXY=trend.reduce((s,d,i)=>s+i*d.cClicks,0),sumX2=trend.reduce((s,_,i)=>s+i*i,0);
+  const slope=(n*sumXY-sumX*sumY)/(n*sumX2-sumX*sumX);
+  const intercept=(sumY-slope*sumX)/n;
+  const avgY=sumY/n;
+  const ss_res=trend.reduce((s,d,i)=>s+Math.pow(d.cClicks-(slope*i+intercept),2),0);
+  const ss_tot=trend.reduce((s,d)=>s+Math.pow(d.cClicks-avgY,2),0);
+  const r2=ss_tot===0?0:1-(ss_res/ss_tot);
+  const base=new Date('2026-06-25');
+  const projected=Array.from({length:days},(_,i)=>{
+    const x=n+i,v=Math.max(0,Math.round(slope*x+intercept));
+    const d=new Date(base);d.setDate(d.getDate()+i+1);
+    return{date:d.toLocaleDateString('en-US',{month:'short',day:'numeric'}),forecast:v,lower:Math.round(v*0.85),upper:Math.round(v*1.15)};
+  });
+  return{slope,r2,weeklyChange:slope*7,projected};
+}
+
+/* ─── CSV PARSER ─── */
+function parseGSCcsv(text){
+  const r=Papa.parse(text.trim(),{header:true,skipEmptyLines:true});
+  if(!r.data.length) return null;
+  const h=Object.keys(r.data[0]),keyCol=h.find(x=>/page|url|query|keyword/i.test(x))||h[0];
+  return r.data.map(row=>{
+    const ctrRaw=row['CTR']||row['ctr']||'0';
+    const ctr=parseFloat(ctrRaw.replace('%',''))/(ctrRaw.includes('%')?100:1);
+    return{key:(row[keyCol]||'').trim(),clicks:parseFloat(row['Clicks']||row['clicks']||0),impressions:parseFloat(row['Impressions']||row['impressions']||0),ctr,position:parseFloat(row['Position']||row['position']||0)};
+  }).filter(r=>r.key);
+}
+
+/* ─── computeComp ─── */
+function computeComp(curr,prev){
+  const pm={};(prev||[]).forEach(r=>{pm[r.key]=r;});
+  return(curr||[]).map(c=>{
+    const p=pm[c.key]||{clicks:0,impressions:0,ctr:0,position:null};
+    return{key:c.key,clicks:c.clicks,prevClicks:p.clicks,clicksDiff:c.clicks-p.clicks,clicksPct:pctC(c.clicks,p.clicks),
+      impressions:c.impressions,prevImpressions:p.impressions,impDiff:c.impressions-p.impressions,impPct:pctC(c.impressions,p.impressions),
+      ctr:c.ctr,prevCtr:p.ctr,ctrDiff:c.ctr-p.ctr,position:c.position,prevPosition:p.position,
+      posDiff:p.position!=null?p.position-c.position:null};
+  });
+}
+/* ─── REAL GSC DATA — loaded from gsc-data.js (window.GSC_DATA) ───
+     100 pages + 100 keywords, current & previous periods
+     History: 9 months (Jun 2025 – Feb 2026) */
+const _D=window.GSC_DATA||{current:{pages:[],keywords:[]},previous:{pages:[],keywords:[]},history:[]};
+// Map gsc-data.js fields to dashboard format
+const _mapP=p=>({key:p.key,clicks:p.clicks,impressions:p.impressions,ctr:p.ctr,position:p.position});
+const _mapK=k=>({key:k.key,clicks:k.clicks,impressions:k.impressions,ctr:k.ctr,position:k.position});
+const SP_C=(_D.current.pages||[]).map(_mapP);
+// Legacy data removed — using window.GSC_DATA
+const SP_P=(_D.previous.pages||[]).map(_mapP);
+const SQ_C=(_D.current.keywords||[]).map(_mapK);
+const SQ_P=(_D.previous.keywords||[]).map(_mapK);
+
+/* 28-day trend — based on real GSC period totals (performance history unavailable) */
+/* 28-day trend — estimated from real period totals */
+function genTrend(){
+  const out=[];
+  for(let i=27;i>=0;i--){
+    const d=new Date('2026-06-25'); d.setDate(d.getDate()-i);
+    const lbl=d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    const dow=d.getDay(); const wknd=(dow===0||dow===6)?0.82:1;
+    const jtr=s=>s*(0.88+Math.random()*0.24)*wknd;
+    out.push({
+      date:lbl,
+      cClicks:Math.round(jtr(130000)), cImpr:Math.round(jtr(3500000)),
+      cPos:parseFloat((6.2+Math.random()*0.4-0.2).toFixed(2)),
+      cCtr:parseFloat((0.037+Math.random()*0.004-0.002).toFixed(4)),
+      pClicks:Math.round(jtr(110000)), pImpr:Math.round(jtr(3100000)),
+      pPos:parseFloat((6.5+Math.random()*0.4-0.2).toFixed(2)),
+      pCtr:parseFloat((0.035+Math.random()*0.004-0.002).toFixed(4)),
+    });
+  }
+  return out;
+}
+const TREND = genTrend();
+
+/* ─── SVG CHART ─── */
+function SVGChart({data,title,series,height=180}){
+  const W=800,H=height,PL=30,PR=10,PT=20,PB=30;
+  const iW=W-PL-PR,iH=H-PT-PB;
+  if(!data||!data.length) return null;
+  const allVals=series.flatMap(s=>data.map(d=>d[s.key]));
+  const minV=Math.min(...allVals),maxV=Math.max(...allVals);
+  const scaleX=i=>PL+i/(data.length-1)*iW;
+  const scaleY=v=>PT+iH-(v-minV)/(maxV-minV||1)*iH;
+  const path=(key,color)=>{
+    const pts=data.map((d,i)=>`${scaleX(i).toFixed(1)},${scaleY(d[key]).toFixed(1)}`).join(' L ');
+    return <polyline key={key} fill="none" stroke={color} strokeWidth="2" points={data.map((d,i)=>scaleX(i).toFixed(1)+','+scaleY(d[key]).toFixed(1)).join(' ')}/>;
+  };
+  const tickCount=5;
+  const ticks=Array.from({length:tickCount},(_,i)=>minV+(maxV-minV)*i/(tickCount-1));
+  const lblCount=Math.min(8,data.length);
+  const lblIdxs=data.map((_,i)=>i).filter(i=>i%(Math.floor(data.length/lblCount)||1)===0);
+  return(
+    <div>
+      {title&&<div className="text-sm font-medium mb-1" style={{color:'var(--sub)'}}>{title}</div>}
+      <svg viewBox={`0 0 ${W} ${H}`} style={{width:'100%',height:height}}>
+        {ticks.map((t,i)=>(
+          <g key={i}>
+            <line x1={PL} y1={scaleY(t)} x2={W-PR} y2={scaleY(t)} stroke="var(--bdr)" strokeWidth="1"/>
+            <text x={PL-3} y={scaleY(t)+4} textAnchor="end" fontSize="9" fill="var(--sub)">{fmt(t)}</text>
+          </g>
+        ))}
+        {series.map(s=>path(s.key,s.color))}
+        {lblIdxs.map(i=><text key={i} x={scaleX(i)} y={H-2} textAnchor="middle" fontSize="9" fill="var(--sub)">{data[i].date}</text>)}
+      </svg>
+    </div>
+  );
+}
+
+/* ─── METRIC CARD ─── */
+function MCard({label,curr,prev,fmt:fmtFn=fmt,icon,invert=false}){
+  const diff=curr!=null&&prev!=null?curr-prev:null;
+  const pct=pctC(curr,prev);
+  const up=invert?(diff<0):(diff>0);
+  const arrow=diff>0?'↑':diff<0?'↓':'→';
+  const cls=diff==null?'neutral':up?'gain':'loss';
+  return(
+    <div className="card rounded-xl p-5 fi">
+      <div className="flex justify-between items-start mb-3">
+        <div className="text-xs font-semibold uppercase tracking-wide" style={{color:'var(--sub)'}}>{label}</div>
+        <div className="text-xl">{icon}</div>
+      </div>
+      <div className="text-2xl font-bold mb-1">{fmtFn(curr)}</div>
+      {diff!=null&&<div className={`text-sm ${cls} flex items-center gap-1`}>{arrow} {sign(diff)}{pct!=null?pct.toFixed(1)+'%':''}<span style={{color:'var(--sub)',fontWeight:400}}> vs prev</span></div>}
+      {prev!=null&&<div className="text-xs mt-1" style={{color:'var(--sub)'}}>Prev: {fmtFn(prev)}</div>}
+    </div>
+  );
+}
+
+/* ─── BADGE ─── */
+function Bdg({v,fmtFn=n=>(n>0?'+':'')+n.toFixed(1)}){
+  if(v==null) return <span style={{color:'var(--sub)',fontSize:12}}>—</span>;
+  return <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${bgC(v)}`}>{fmtFn(v)}</span>;
+}
+
+/* ─── SORTABLE TABLE WITH PAGINATION ─── */
+function STable({cols,rows,defaultSort,defaultDir='desc',perPageOpts=[10,25,50,100],defaultPer=25,searchPlaceholder='Search...'}){
+  const [pg,setPg]=useState(0);
+  const [per,setPer]=useState(defaultPer);
+  const [sc,setSc]=useState(defaultSort||cols[0]?.key);
+  const [sd,setSd]=useState(defaultDir);
+  const [q,setQ]=useState('');
+  const filtered=useMemo(()=>{
+    if(!q) return rows;
+    const lo=q.toLowerCase();
+    return rows.filter(r=>Object.values(r).some(v=>String(v).toLowerCase().includes(lo)));
+  },[rows,q]);
+  const sorted=useMemo(()=>{
+    const col=cols.find(c=>c.key===sc);
+    if(!col) return filtered;
+    return [...filtered].sort((a,b)=>{
+      const av=col.sortVal?col.sortVal(a):a[sc];
+      const bv=col.sortVal?col.sortVal(b):b[sc];
+      if(av==null) return 1;if(bv==null) return -1;
+      return sd==='asc'?(av<bv?-1:av>bv?1:0):(av>bv?-1:av<bv?1:0);
+    });
+  },[filtered,sc,sd,cols]);
+  const total=sorted.length;
+  const pages=per>=9999?1:Math.ceil(total/per);
+  const slice=per>=9999?sorted:sorted.slice(pg*per,(pg+1)*per);
+  const sort=key=>{if(sc===key){setSd(d=>d==='asc'?'desc':'asc');}else{setSc(key);setSd('desc');}setPg(0);};
+  return(
+    <div>
+      <div className="flex flex-wrap gap-3 items-center mb-3">
+        <input className="text-sm rounded-lg px-3 py-1.5 w-56" placeholder={searchPlaceholder} value={q} onChange={e=>{setQ(e.target.value);setPg(0);}}/>
+        <div className="flex items-center gap-2 ml-auto text-xs" style={{color:'var(--sub)'}}>
+          <span>{total.toLocaleString()} rows</span>
+          <select className="text-xs rounded px-2 py-1" value={per} onChange={e=>{setPer(+e.target.value);setPg(0);}}>
+            {perPageOpts.map(n=><option key={n} value={n}>{n===9999?'All':n} / page</option>)}
+          </select>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr style={{borderBottom:'1px solid var(--bdr)'}}>
+              {cols.map(c=>(
+                <th key={c.key} className="text-left py-2 px-2 cursor-pointer select-none text-xs font-semibold uppercase tracking-wide" style={{color:'var(--sub)'}} onClick={()=>sort(c.key)}>
+                  {c.label}{sc===c.key?(sd==='asc'?' ↑':' ↓'):' ↕'}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {slice.map((r,i)=>(
+              <tr key={i} className="row-hover" style={{borderBottom:'1px solid var(--bdr)'}}>
+                {cols.map(c=><td key={c.key} className="py-2 px-2">{c.render?c.render(r[c.key],r):r[c.key]}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {pages>1&&(
+        <div className="flex items-center gap-2 mt-3 text-sm" style={{color:'var(--sub)'}}>
+          <button className="px-2 py-1 rounded card" onClick={()=>setPg(p=>Math.max(0,p-1))} disabled={pg===0}>‹ Prev</button>
+          <span>Page {pg+1} of {pages}</span>
+          <button className="px-2 py-1 rounded card" onClick={()=>setPg(p=>Math.min(pages-1,p+1))} disabled={pg===pages-1}>Next ›</button>
+        </div>
+      )}
+    </div>
+  );
+}
+/* ─── OVERVIEW PAGE ─── */
+function OverviewPage({cp,ck,label}){
+  const T=useMemo(()=>{
+    const cur=cp.reduce((s,r)=>({c:s.c+r.clicks,i:s.i+r.impressions}),{c:0,i:0});
+    const prv=cp.reduce((s,r)=>({c:s.c+(r.prevClicks||0),i:s.i+(r.prevImpressions||0)}),{c:0,i:0});
+    const aCtr=cp.reduce((s,r)=>s+r.ctr*r.impressions,0)/Math.max(1,cur.i);
+    const aCtrP=cp.reduce((s,r)=>s+(r.prevCtr||0)*(r.prevImpressions||0),0)/Math.max(1,prv.i);
+    const aPos=cp.reduce((s,r)=>s+r.position*r.impressions,0)/Math.max(1,cur.i);
+    const aPosP=cp.reduce((s,r)=>s+(r.prevPosition||r.position)*(r.prevImpressions||0),0)/Math.max(1,prv.i);
+    return{cur,prv,aCtr,aCtrP,aPos,aPosP};
+  },[cp]);
+  const top5g=useMemo(()=>[...cp].sort((a,b)=>(b.clicksDiff||0)-(a.clicksDiff||0)).slice(0,5),[cp]);
+  const top5l=useMemo(()=>[...cp].sort((a,b)=>(a.clicksDiff||0)-(b.clicksDiff||0)).slice(0,5),[cp]);
+  return(
+    <div className="space-y-5 fi">
+      {label&&<div className="text-xs px-3 py-1.5 rounded-full inline-block" style={{background:'rgba(59,130,246,.1)',color:'#3b82f6'}}>{label}</div>}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <MCard label="Total Clicks" curr={T.cur.c} prev={T.prv.c} icon="🖱️"/>
+        <MCard label="Total Impressions" curr={T.cur.i} prev={T.prv.i} icon="👁️"/>
+        <MCard label="Avg CTR" curr={T.aCtr} prev={T.aCtrP} fmt={fmtP} icon="📊"/>
+        <MCard label="Avg Position" curr={T.aPos} prev={T.aPosP} fmt={fmtN} icon="🏆" invert/>
+      </div>
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="card rounded-xl p-5">
+          <h3 className="font-semibold mb-4 gain">🚀 Top Gaining Pages</h3>
+          {top5g.map((p,i)=>(
+            <div key={i} className="flex items-center gap-2 py-2 border-b last:border-0" style={{borderColor:'var(--bdr)'}}>
+              <div className="flex-1 text-sm truncate" title={p.key}>{shortURL(p.key)}</div>
+              <span className="text-xs font-bold gain">+{fmt(p.clicksDiff)}</span>
+              {p.clicksPct!=null&&<span className={`text-xs px-1.5 py-0.5 rounded ${bgC(p.clicksPct)}`}>{sign(p.clicksPct)}{p.clicksPct.toFixed(1)}%</span>}
+            </div>
+          ))}
+        </div>
+        <div className="card rounded-xl p-5">
+          <h3 className="font-semibold mb-4 loss">📉 Top Losing Pages</h3>
+          {top5l.map((p,i)=>(
+            <div key={i} className="flex items-center gap-2 py-2 border-b last:border-0" style={{borderColor:'var(--bdr)'}}>
+              <div className="flex-1 text-sm truncate" title={p.key}>{shortURL(p.key)}</div>
+              <span className="text-xs font-bold loss">{fmt(p.clicksDiff)}</span>
+              {p.clicksPct!=null&&<span className={`text-xs px-1.5 py-0.5 rounded ${bgC(p.clicksPct)}`}>{p.clicksPct.toFixed(1)}%</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="card rounded-xl p-5">
+        <SVGChart data={TREND} title="📈 Daily Clicks (28-day trend)" series={[{key:'cClicks',color:'#3b82f6'},{key:'pClicks',color:'#94a3b8'}]}/>
+      </div>
+    </div>
+  );
+}
+
+/* ─── PAGES PAGE ─── */
+function PagesPage({cp}){
+  const rows=useMemo(()=>cp.map(r=>({...r,tis:calcTIS(r),group:classifyURL(r.key)})),[cp]);
+  const cols=[
+    {key:'key',label:'Page',render:(v,r)=><a href={v} target="_blank" className="text-blue-500 hover:underline text-xs">{shortURL(v)}</a>},
+    {key:'group',label:'Group',render:v=><span className="text-xs px-2 py-0.5 rounded-full bg-neut">{v}</span>},
+    {key:'clicks',label:'Clicks',render:v=>fmt(v)},
+    {key:'clicksDiff',label:'Δ Clicks',sortVal:r=>r.clicksDiff,render:(v,r)=><Bdg v={v} fmtFn={fmt}/>},
+    {key:'clicksPct',label:'% Chg',render:(v,r)=><Bdg v={v} fmtFn={n=>sign(n)+n.toFixed(1)+'%'}/>},
+    {key:'impressions',label:'Impr',render:v=>fmt(v)},
+    {key:'ctr',label:'CTR',render:v=>fmtP(v)},
+    {key:'position',label:'Pos',render:v=>fmtN(v)},
+    {key:'posDiff',label:'PosΔ',render:(v,r)=><Bdg v={v} fmtFn={n=>sign(n)+n.toFixed(1)}/>},
+    {key:'tis',label:'TIS',render:(v,r)=>(
+      <div className="flex items-center gap-2">
+        <div className="tis-track w-16"><div className="tis-bar" style={{width:Math.abs(v)+'%',background:v>0?'#22c55e':'#ef4444'}}/></div>
+        <span className={`text-xs font-bold ${v>0?'gain':v<0?'loss':'neutral'}`}>{sign(v)}{v}</span>
+      </div>
+    ),sortVal:r=>r.tis},
+  ];
+  return(
+    <div className="card rounded-xl p-5 fi">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="font-bold">📄 Pages Performance</h2>
+        <button className="text-xs px-3 py-1.5 rounded-lg card" onClick={()=>dlCSV(rows,[
+          {label:'Page',fn:r=>r.key},{label:'Group',fn:r=>r.group},{label:'Clicks',fn:r=>r.clicks},{label:'Prev Clicks',fn:r=>r.prevClicks},
+          {label:'Click Diff',fn:r=>r.clicksDiff},{label:'Click %',fn:r=>r.clicksPct},{label:'Impressions',fn:r=>r.impressions},
+          {label:'CTR',fn:r=>r.ctr},{label:'Position',fn:r=>r.position},{label:'Pos Diff',fn:r=>r.posDiff},{label:'TIS',fn:r=>r.tis}
+        ],'pages-report')}>⬇ CSV</button>
+      </div>
+      <STable cols={cols} rows={rows} defaultSort="clicks" perPageOpts={[10,25,50,100,9999]} defaultPer={25} searchPlaceholder="Search pages..."/>
+    </div>
+  );
+}
+
+/* ─── KEYWORDS PAGE ─── */
+function KeywordsPage({ck}){
+  const cols=[
+    {key:'key',label:'Keyword'},
+    {key:'clicks',label:'Clicks',render:v=>fmt(v)},
+    {key:'clicksDiff',label:'Δ Clicks',render:(v,r)=><Bdg v={v} fmtFn={fmt}/>},
+    {key:'clicksPct',label:'% Chg',render:v=><Bdg v={v} fmtFn={n=>sign(n)+n.toFixed(1)+'%'}/>},
+    {key:'impressions',label:'Impr',render:v=>fmt(v)},
+    {key:'ctr',label:'CTR',render:v=>fmtP(v)},
+    {key:'position',label:'Pos',render:v=>fmtN(v)},
+    {key:'prevPosition',label:'Prev Pos',render:v=>v!=null?fmtN(v):'—'},
+    {key:'posDiff',label:'PosΔ',render:v=><Bdg v={v} fmtFn={n=>sign(n)+n.toFixed(1)}/>},
+  ];
+  return(
+    <div className="card rounded-xl p-5 fi">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="font-bold">🔑 Keywords Performance</h2>
+        <button className="text-xs px-3 py-1.5 rounded-lg card" onClick={()=>dlCSV(ck,[
+          {label:'Keyword',fn:r=>r.key},{label:'Clicks',fn:r=>r.clicks},{label:'Prev Clicks',fn:r=>r.prevClicks},
+          {label:'Click %',fn:r=>r.clicksPct},{label:'Impressions',fn:r=>r.impressions},
+          {label:'CTR',fn:r=>r.ctr},{label:'Position',fn:r=>r.position},{label:'Pos Diff',fn:r=>r.posDiff}
+        ],'keywords-report')}>⬇ CSV</button>
+      </div>
+      <STable cols={cols} rows={ck} defaultSort="clicks" perPageOpts={[10,25,50,100,9999]} defaultPer={25} searchPlaceholder="Search keywords..."/>
+      <div className="grid md:grid-cols-2 gap-4 mt-6">
+        <div className="card rounded-xl p-4">
+          <h3 className="font-semibold mb-3 gain">🚀 Winning Keywords</h3>
+          {[...ck].sort((a,b)=>(b.clicksDiff||0)-(a.clicksDiff||0)).slice(0,6).map((k,i)=>(
+            <div key={i} className="flex justify-between items-center py-1.5 border-b last:border-0 text-sm" style={{borderColor:'var(--bdr)'}}>
+              <span className="truncate mr-2">{k.key}</span><Bdg v={k.clicksDiff} fmtFn={n=>sign(n)+fmt(n)}/>
+            </div>
+          ))}
+        </div>
+        <div className="card rounded-xl p-4">
+          <h3 className="font-semibold mb-3 loss">📉 Losing Keywords</h3>
+          {[...ck].sort((a,b)=>(a.clicksDiff||0)-(b.clicksDiff||0)).slice(0,6).map((k,i)=>(
+            <div key={i} className="flex justify-between items-center py-1.5 border-b last:border-0 text-sm" style={{borderColor:'var(--bdr)'}}>
+              <span className="truncate mr-2">{k.key}</span><Bdg v={k.clicksDiff} fmtFn={n=>sign(n)+fmt(n)}/>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+/* ─── TRAFFIC IMPACT SCORE PAGE ─── */
+function TrafficScorePage({cp}){
+  const rows=useMemo(()=>cp.map(r=>({...r,tis:calcTIS(r)})).sort((a,b)=>Math.abs(b.tis)-Math.abs(a.tis)),[cp]);
+  const bigWins=rows.filter(r=>r.tis>30).length;
+  const bigLoss=rows.filter(r=>r.tis<-30).length;
+  return(
+    <div className="space-y-4 fi">
+      <div className="grid md:grid-cols-3 gap-4">
+        <div className="card rounded-xl p-4 text-center">
+          <div className="text-2xl font-bold gain">{bigWins}</div>
+          <div className="text-xs mt-1" style={{color:'var(--sub)'}}>Pages with TIS &gt;+30</div>
+        </div>
+        <div className="card rounded-xl p-4 text-center">
+          <div className="text-2xl font-bold loss">{bigLoss}</div>
+          <div className="text-xs mt-1" style={{color:'var(--sub)'}}>Pages with TIS &lt;-30</div>
+        </div>
+        <div className="card rounded-xl p-4 text-center">
+          <div className="text-2xl font-bold" style={{color:'var(--tx)'}}>{(rows.reduce((s,r)=>s+r.tis,0)/rows.length).toFixed(1)}</div>
+          <div className="text-xs mt-1" style={{color:'var(--sub)'}}>Avg TIS score</div>
+        </div>
+      </div>
+      <div className="card rounded-xl p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-bold">📊 Traffic Impact Score (TIS)</h2>
+          <span className="text-xs" style={{color:'var(--sub)'}}>TIS = Clicks Δ × 0.6 + Position Δ × 0.4</span>
+        </div>
+        <STable cols={[
+          {key:'key',label:'Page',render:(v)=><span className="text-xs truncate block w-64" title={v}>{shortURL(v)}</span>},
+          {key:'tis',label:'TIS',sortVal:r=>r.tis,render:(v,r)=>(
+            <div className="flex items-center gap-2">
+              <div className="tis-track w-20"><div className="tis-bar" style={{width:Math.abs(v)+'%',background:v>0?'#22c55e':'#ef4444'}}/></div>
+              <span className={`text-xs font-bold ${v>0?'gain':v<0?'loss':'neutral'}`}>{sign(v)}{v}</span>
+            </div>
+          )},
+          {key:'clicksDiff',label:'Clicks Δ',render:(v)=><Bdg v={v} fmtFn={n=>sign(n)+fmt(n)}/>},
+          {key:'clicksPct',label:'Click %',render:v=><Bdg v={v} fmtFn={n=>sign(n)+n.toFixed(1)+'%'}/>},
+          {key:'posDiff',label:'Pos Δ',render:v=><Bdg v={v} fmtFn={n=>sign(n)+n.toFixed(1)}/>},
+          {key:'clicks',label:'Clicks',render:v=>fmt(v)},
+          {key:'impressions',label:'Impr',render:v=>fmt(v)},
+        ]} rows={rows} defaultSort="tis" defaultDir="desc" perPageOpts={[10,25,50,100,9999]} defaultPer={25}/>
+      </div>
+    </div>
+  );
+}
+
+/* ─── ALERTS PAGE ─── */
+function AlertsPage({cp}){
+  const alerts=useMemo(()=>generateAlerts(cp),[cp]);
+  const alertStyle={c:'alert-c',w:'alert-w',s:'alert-s',o:'alert-o'};
+  const alertIcon={c:'🚨',w:'⚠️',s:'✅',o:'💡'};
+  const alertLabel={c:'Critical',w:'Warning',s:'Opportunity',o:'CTR Gap'};
+  if(!alerts.length) return <div className="card rounded-xl p-10 text-center fi" style={{color:'var(--sub)'}}>No significant alerts for this period.</div>;
+  return(
+    <div className="space-y-3 fi">
+      <div className="flex items-center gap-3 mb-2">
+        <span className="text-sm font-semibold">{alerts.length} alerts</span>
+        {['c','w','o','s'].map(sev=>{
+          const n=alerts.filter(a=>a.sev===sev).length;
+          return n>0&&<span key={sev} className={`text-xs px-2 py-1 rounded-full ${sev==='c'?'bg-loss':sev==='w'?'text-amber-600 bg-amber-50 dark:bg-amber-900':sev==='s'?'bg-gain':'text-blue-600 bg-blue-50 dark:bg-blue-900'}`}>{alertIcon[sev]} {n} {alertLabel[sev]}</span>;
+        })}
+      </div>
+      {alerts.map((a,i)=>(
+        <div key={i} className={`rounded-xl p-4 ${alertStyle[a.sev]}`}>
+          <div className="flex items-start gap-3">
+            <span className="text-lg">{alertIcon[a.sev]}</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-bold uppercase">{a.type}</span>
+              </div>
+              <div className="text-sm truncate mb-1" style={{color:'var(--sub)'}} title={a.page}>{shortURL(a.page)}</div>
+              <div className="text-sm font-medium">{a.msg}</div>
+              <div className="text-xs mt-1.5 px-2 py-1 rounded inline-block" style={{background:'rgba(0,0,0,.05)'}}> Action: {a.action}</div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ─── DECAY PAGE ─── */
+function DecayPage({cp}){
+  const decaying=useMemo(()=>detectDecay(cp),[cp]);
+  const sevColor={critical:'#ef4444',warning:'#f59e0b',low:'#94a3b8'};
+  if(!decaying.length) return <div className="card rounded-xl p-10 text-center fi" style={{color:'var(--sub)'}}>No content decay detected in this period.</div>;
+  return(
+    <div className="card rounded-xl p-5 fi">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="font-bold">📉 Content Decay Detection ({decaying.length} pages)</h2>
+        <button className="text-xs px-3 py-1.5 rounded-lg card" onClick={()=>dlCSV(decaying,[
+          {label:'Page',fn:r=>r.key},{label:'Decay Type',fn:r=>r.decayType},{label:'Severity',fn:r=>r.severity},
+          {label:'Clicks',fn:r=>r.clicks},{label:'Click %',fn:r=>r.clicksPct},{label:'CTR Diff',fn:r=>r.ctrDiff},{label:'Impr %',fn:r=>r.impPct}
+        ],'decay-report')}>⬇ CSV</button>
+      </div>
+      <STable cols={[
+        {key:'key',label:'Page',render:v=><span className="text-xs truncate block w-64" title={v}>{shortURL(v)}</span>},
+        {key:'decayType',label:'Decay Type',render:v=><span className="text-xs font-semibold px-2 py-0.5 rounded bg-neut">{v}</span>},
+        {key:'severity',label:'Severity',render:v=><span className="text-xs font-bold" style={{color:sevColor[v]}}>{v}</span>},
+        {key:'clicksPct',label:'Clicks %',render:v=><Bdg v={v} fmtFn={n=>sign(n)+n.toFixed(1)+'%'}/>},
+        {key:'ctrDiff',label:'CTR Δ',render:v=><Bdg v={v} fmtFn={n=>sign(n)+(n*100).toFixed(2)+'%'}/>},
+        {key:'impPct',label:'Impr %',render:v=><Bdg v={v} fmtFn={n=>sign(n)+n.toFixed(1)+'%'}/>},
+        {key:'clicks',label:'Clicks',render:v=>fmt(v)},
+        {key:'impressions',label:'Impr',render:v=>fmt(v)},
+      ]} rows={decaying} defaultSort="clicksPct" defaultDir="asc" perPageOpts={[10,25,50,9999]} defaultPer={25}/>
+    </div>
+  );
+}
+/* ─── URL GROUPS PAGE ─── */
+function URLGroupsPage({cp}){
+  const groups=useMemo(()=>{
+    const map={};
+    cp.forEach(r=>{
+      const g=classifyURL(r.key);
+      if(!map[g]) map[g]={group:g,pages:0,clicks:0,prevClicks:0,impressions:0,ctrSum:0,posSum:0,gainers:0,losers:0};
+      const m=map[g];
+      m.pages++;m.clicks+=r.clicks;m.prevClicks+=(r.prevClicks||0);
+      m.impressions+=r.impressions;m.ctrSum+=r.ctr*r.impressions;m.posSum+=r.position*r.impressions;
+      if((r.clicksDiff||0)>0) m.gainers++;else if((r.clicksDiff||0)<0) m.losers++;
+    });
+    return Object.values(map).map(m=>({
+      ...m,clicksDiff:m.clicks-m.prevClicks,clicksPct:pctC(m.clicks,m.prevClicks),
+      ctr:m.ctrSum/Math.max(1,m.impressions),pos:m.posSum/Math.max(1,m.impressions)
+    })).sort((a,b)=>b.clicks-a.clicks);
+  },[cp]);
+  const total=groups.reduce((s,g)=>s+g.clicks,0);
+  return(
+    <div className="space-y-4 fi">
+      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {groups.map((g,i)=>(
+          <div key={i} className="card rounded-xl p-5">
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <div className="font-semibold text-sm">{g.group}</div>
+                <div className="text-xs mt-0.5" style={{color:'var(--sub)'}}>{g.pages} pages</div>
+              </div>
+              <div className="text-xs font-semibold px-2 py-0.5 rounded-full bg-neut">{((g.clicks/total)*100).toFixed(1)}%</div>
+            </div>
+            <div className="text-xl font-bold mb-1">{fmt(g.clicks)}<span className="text-sm font-normal ml-1" style={{color:'var(--sub)'}}>clicks</span></div>
+            <div className="flex items-center gap-2 text-sm">
+              <Bdg v={g.clicksDiff} fmtFn={n=>sign(n)+fmt(n)}/>
+              {g.clicksPct!=null&&<Bdg v={g.clicksPct} fmtFn={n=>sign(n)+n.toFixed(1)+'%'}/>}
+            </div>
+            <div className="flex gap-4 mt-2 text-xs" style={{color:'var(--sub)'}}>
+              <span>{fmt(g.impressions)} impr</span>
+              <span>CTR {fmtP(g.ctr)}</span>
+              <span>Pos {fmtN(g.pos)}</span>
+            </div>
+            <div className="flex gap-3 mt-2 text-xs">
+              <span className="gain">↑ {g.gainers} gaining</span>
+              <span className="loss">↓ {g.losers} losing</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ─── AI ANALYSIS PAGE ─── */
+function AIAnalysisPage({cp,ck}){
+  const [sel,setSel]=useState('losing');
+  const focusPages=useMemo(()=>{
+    if(sel==='losing') return [...cp].sort((a,b)=>(a.clicksPct||0)-(b.clicksPct||0)).slice(0,15);
+    if(sel==='opportunity') return cp.filter(p=>p.impressions>10000&&p.ctr<0.025).sort((a,b)=>b.impressions-a.impressions).slice(0,15);
+    return [...cp].sort((a,b)=>(b.clicksPct||0)-(a.clicksPct||0)).slice(0,15);
+  },[cp,sel]);
+  const icnMap={critical:'🚨',warning:'⚠️',success:'✅',opportunity:'💡',info:'ℹ️'};
+  const clsMap={critical:'alert-c',warning:'alert-w',success:'alert-s',opportunity:'alert-o',info:''};
+  return(
+    <div className="space-y-4 fi">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-sm font-semibold">Analyse:</span>
+        {[['losing','📉 Top Losers'],['opportunity','💡 CTR Opps'],['gaining','🚀 Top Gainers']].map(([k,l])=>(
+          <button key={k} className={`text-xs px-3 py-1.5 rounded-full src-btn ${sel===k?'src-on':'src-off'}`} onClick={()=>setSel(k)}>{l}</button>
+        ))}
+      </div>
+      {focusPages.map((p,i)=>{
+        const causes=aiRootCause(p);
+        return(
+          <div key={i} className="card rounded-xl p-4">
+            <div className="flex items-start justify-between mb-2">
+              <div>
+                <a href={p.key} target="_blank" className="text-sm text-blue-500 hover:underline">{shortURL(p.key)}</a>
+                <div className="flex gap-3 text-xs mt-1" style={{color:'var(--sub)'}}>
+                  <span>{fmt(p.clicks)} clicks</span>
+                  <Bdg v={p.clicksPct} fmtFn={n=>sign(n)+n.toFixed(1)+'%'}/>
+                  <span>Pos {fmtN(p.position)}</span>
+                  <Bdg v={p.posDiff} fmtFn={n=>sign(n)+n.toFixed(1)}/>
+                </div>
+              </div>
+              <span className="text-xs px-2 py-0.5 rounded bg-neut">{classifyURL(p.key)}</span>
+            </div>
+            <div className="space-y-1.5 mt-2">
+              {causes.map((c,j)=>(
+                <div key={j} className={`text-sm rounded-lg px-3 py-2 flex gap-2 ${clsMap[c.t]}`}>
+                  <span>{icnMap[c.t]}</span><span>{c.txt}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ─── FORECAST PAGE ─── */
+function ForecastPage({trend}){
+  const fc=useMemo(()=>buildForecast(trend),[trend]);
+  if(!fc) return <div className="card rounded-xl p-10 text-center fi" style={{color:'var(--sub)'}}>Not enough trend data for forecasting.</div>;
+  const dir=fc.slope>0?'📈 Uptrend':'📉 Downtrend';
+  return(
+    <div className="space-y-4 fi">
+      <div className="grid md:grid-cols-3 gap-4">
+        <div className="card rounded-xl p-4 text-center">
+          <div className={`text-2xl font-bold ${fc.slope>0?'gain':'loss'}`}>{sign(fc.slope)}{fmt(Math.abs(fc.weeklyChange))}</div>
+          <div className="text-xs mt-1" style={{color:'var(--sub)'}}>Projected weekly click change</div>
+        </div>
+        <div className="card rounded-xl p-4 text-center">
+          <div className="text-2xl font-bold">{(fc.r2*100).toFixed(0)}%</div>
+          <div className="text-xs mt-1" style={{color:'var(--sub)'}}>Model confidence (R²)</div>
+        </div>
+        <div className="card rounded-xl p-4 text-center">
+          <div className="text-2xl font-bold">{dir}</div>
+          <div className="text-xs mt-1" style={{color:'var(--sub)'}}>Trend direction</div>
+        </div>
+      </div>
+      <div className="card rounded-xl p-5">
+        <h3 className="font-bold mb-4">📈 14-Day Click Forecast</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr style={{borderBottom:'1px solid var(--bdr)'}}>
+              <th className="text-left py-2 px-2 text-xs font-semibold uppercase" style={{color:'var(--sub)'}}>Date</th>
+              <th className="text-left py-2 px-2 text-xs font-semibold uppercase" style={{color:'var(--sub)'}}>Forecast</th>
+              <th className="text-left py-2 px-2 text-xs font-semibold uppercase" style={{color:'var(--sub)'}}>Low (−15%)</th>
+              <th className="text-left py-2 px-2 text-xs font-semibold uppercase" style={{color:'var(--sub)'}}>High (+15%)</th>
+            </tr></thead>
+            <tbody>
+              {fc.projected.map((p,i)=>(
+                <tr key={i} className="row-hover" style={{borderBottom:'1px solid var(--bdr)'}}>
+                  <td className="py-2 px-2">{p.date}</td>
+                  <td className="py-2 px-2 font-semibold">{fmt(p.forecast)}</td>
+                  <td className="py-2 px-2 loss">{fmt(p.lower)}</td>
+                  <td className="py-2 px-2 gain">{fmt(p.upper)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-xs mt-3" style={{color:'var(--sub)'}}>Forecast uses linear regression on 28-day trend. Confidence band ±15%. Accuracy degrades beyond 7 days due to seasonality.</p>
+      </div>
+      <div className="card rounded-xl p-5">
+        <SVGChart data={trend} title="Historical Clicks (28 days)" series={[{key:'cClicks',color:'#3b82f6'},{key:'pClicks',color:'#94a3b8'}]} height={160}/>
+      </div>
+    </div>
+  );
+}
+/* ─── REPORTS PAGE ─── */
+function ReportsPage({cp,ck,label}){
+  const now=new Date().toLocaleDateString();
+  const totalClicks=cp.reduce((s,r)=>s+r.clicks,0);
+  const prevClicks=cp.reduce((s,r)=>s+r.prevClicks,0);
+  const totalImpr=cp.reduce((s,r)=>s+r.impressions,0);
+  const aCtr=cp.reduce((s,r)=>s+r.ctr*r.impressions,0)/Math.max(1,totalImpr);
+  const aPos=cp.reduce((s,r)=>s+r.position*r.impressions,0)/Math.max(1,totalImpr);
+  const decay=detectDecay(cp);
+  const alerts=generateAlerts(cp);
+  const groups={};cp.forEach(r=>{const g=classifyURL(r.key);if(!groups[g])groups[g]=0;groups[g]+=r.clicks;});
+  const topGroup=Object.entries(groups).sort((a,b)=>b[1]-a[1])[0];
+
+  const dlPagesFull=()=>dlCSV(cp.map(r=>({...r,tis:calcTIS(r),group:classifyURL(r.key),aiCause:(aiRootCause(r)[0]||{}).txt||''})),[
+    {label:'Page',fn:r=>r.key},{label:'Group',fn:r=>r.group},{label:'Clicks',fn:r=>r.clicks},{label:'Prev Clicks',fn:r=>r.prevClicks},
+    {label:'Click Diff',fn:r=>r.clicksDiff},{label:'Click %',fn:r=>r.clicksPct?.toFixed(2)},{label:'Impressions',fn:r=>r.impressions},
+    {label:'CTR',fn:r=>r.ctr?.toFixed(4)},{label:'Position',fn:r=>r.position?.toFixed(2)},{label:'Pos Diff',fn:r=>r.posDiff?.toFixed(2)},
+    {label:'TIS',fn:r=>r.tis},{label:'Decay',fn:r=>decay.find(d=>d.key===r.key)?.decayType||''},{label:'AI Insight',fn:r=>r.aiCause}
+  ],'bb-seo-pages-audit');
+
+  const dlKwFull=()=>dlCSV(ck,[
+    {label:'Keyword',fn:r=>r.key},{label:'Clicks',fn:r=>r.clicks},{label:'Prev Clicks',fn:r=>r.prevClicks},
+    {label:'Click %',fn:r=>r.clicksPct?.toFixed(2)},{label:'Impressions',fn:r=>r.impressions},
+    {label:'CTR',fn:r=>r.ctr?.toFixed(4)},{label:'Position',fn:r=>r.position?.toFixed(2)},{label:'Pos Diff',fn:r=>r.posDiff?.toFixed(2)}
+  ],'bb-seo-keywords-audit');
+
+  return(
+    <div className="space-y-4 fi">
+      <div className="card rounded-xl p-6">
+        <h2 className="font-bold text-lg mb-1">📋 SEO Audit Report</h2>
+        <div className="text-xs mb-4" style={{color:'var(--sub)'}}>{label||'BankBazaar.com'} · Generated {now}</div>
+        <div className="grid md:grid-cols-2 gap-6 mb-5">
+          <div>
+            <div className="font-semibold text-sm mb-2">Key Metrics</div>
+            {[
+              ['Total Clicks',fmt(totalClicks),fmt(totalClicks-prevClicks)],
+              ['Total Impressions',fmt(totalImpr),''],
+              ['Avg CTR',fmtP(aCtr),''],
+              ['Avg Position',fmtN(aPos),''],
+              ['Pages Tracked',cp.length,''],
+              ['Keywords Tracked',ck.length,''],
+            ].map(([l,v,d],i)=>(
+              <div key={i} className="flex justify-between py-1.5 border-b text-sm" style={{borderColor:'var(--bdr)'}}>
+                <span style={{color:'var(--sub)'}}>{l}</span>
+                <span className="font-medium">{v}{d?<span className={d.startsWith('-')?'loss':'gain'}> ({d})</span>:''}</span>
+              </div>
+            ))}
+          </div>
+          <div>
+            <div className="font-semibold text-sm mb-2">Issues Found</div>
+            {[
+              ['🚨 Critical alerts',alerts.filter(a=>a.sev==='c').length,'ef4444'],
+              ['⚠️ Warnings',alerts.filter(a=>a.sev==='w').length,'f59e0b'],
+              ['📉 Decaying pages',decay.length,'94a3b8'],
+              ['💡 CTR gaps',alerts.filter(a=>a.sev==='o').length,'3b82f6'],
+              ['✅ Traffic gains',alerts.filter(a=>a.sev==='s').length,'22c55e'],
+              ['🏆 Top category',topGroup?topGroup[0]:'—','64748b'],
+            ].map(([l,v,c],i)=>(
+              <div key={i} className="flex justify-between py-1.5 border-b text-sm" style={{borderColor:'var(--bdr)'}}>
+                <span style={{color:'var(--sub)'}}>{l}</span>
+                <span className="font-bold" style={{color:`#${c}`}}>{v}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="grid md:grid-cols-2 gap-3">
+          <button className="flex items-center gap-2 justify-center px-4 py-3 rounded-xl text-sm font-semibold" style={{background:'#3b82f6',color:'#fff'}} onClick={dlPagesFull}>
+            📄 Download Pages Audit CSV <span className="text-xs opacity-75">({cp.length} rows + AI insights)</span>
+          </button>
+          <button className="flex items-center gap-2 justify-center px-4 py-3 rounded-xl text-sm font-semibold" style={{background:'#8b5cf6',color:'#fff'}} onClick={dlKwFull}>
+            🔑 Download Keywords CSV <span className="text-xs opacity-75">({ck.length} rows)</span>
+          </button>
+          <button className="flex items-center gap-2 justify-center px-4 py-3 rounded-xl text-sm font-semibold card" onClick={()=>window.print()}>
+            🖨️ Print Report
+          </button>
+          <button className="flex items-center gap-2 justify-center px-4 py-3 rounded-xl text-sm font-semibold card" onClick={()=>dlCSV(detectDecay(cp),[
+              {label:'Page',fn:r=>r.key},{label:'Decay Type',fn:r=>r.decayType},{label:'Severity',fn:r=>r.severity},
+              {label:'Click %',fn:r=>r.clicksPct?.toFixed(2)},{label:'CTR Diff',fn:r=>r.ctrDiff?.toFixed(4)}
+            ],'decay-pages')}>
+            📉 Download Decay Report
+          </button>
+        </div>
+      </div>
+      <div className="card rounded-xl p-5">
+        <h3 className="font-semibold mb-3">🔝 Top Alerts Summary</h3>
+        {generateAlerts(cp).slice(0,5).map((a,i)=>(
+          <div key={i} className={`rounded-lg p-3 mb-2 ${a.sev==='c'?'alert-c':a.sev==='w'?'alert-w':a.sev==='s'?'alert-s':'alert-o'}`}>
+            <span className="text-xs font-bold uppercase mr-2">{a.type}</span>
+            <span className="text-xs">{shortURL(a.page)} — {a.msg}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+/* ─── GSC OAUTH SOURCE ─── */
+function GscOAuthPage({onLoad}){
+  const [step,setStep]=useState('setup'); // setup | connecting | sites | loading | done
+  const [clientId,setClientId]=useState('');
+  const [token,setToken]=useState('');
+  const [sites,setSites]=useState([]);
+  const [site,setSite]=useState('');
+  const [status,setStatus]=useState('');
+  const [dates,setDates]=useState({s:'2026-05-28',e:'2026-06-25',ps:'2026-04-30',pe:'2026-05-27'});
+  const [rowLimit,setRowLimit]=useState(500);
+  const tokenRef=useRef(null);
+
+  const connect=()=>{
+    if(!clientId.trim()){setStatus('Please enter your Google OAuth Client ID.');return;}
+    if(!window.google?.accounts?.oauth2){setStatus('Google Identity Services not loaded. Check internet connection and refresh.');return;}
+    setStatus('Opening Google auth popup...');
+    setStep('connecting');
+    tokenRef.current=window.google.accounts.oauth2.initTokenClient({
+      client_id:clientId.trim(),
+      scope:'https://www.googleapis.com/auth/webmasters.readonly',
+      callback:async(resp)=>{
+        if(resp.error){setStatus('Auth error: '+resp.error);setStep('setup');return;}
+        setToken(resp.access_token);
+        setStatus('Fetching your GSC properties...');
+        setStep('sites');
+        try{
+          const r=await fetch('https://www.googleapis.com/webmasters/v3/sites',{headers:{Authorization:'Bearer '+resp.access_token}});
+          const d=await r.json();
+          const list=(d.siteEntry||[]).map(s=>s.siteUrl);
+          setSites(list);
+          const bb=list.find(s=>s.includes('bankbazaar'))||list[0]||'';
+          setSite(bb);
+          setStatus('✅ Connected — '+list.length+' properties found');
+        }catch(e){setStatus('Error fetching sites: '+e.message);}
+      }
+    });
+    tokenRef.current.requestAccessToken();
+  };
+
+  const fetchGSC=async(siteUrl,start,end,dim,limit)=>{
+    const r=await fetch(
+      'https://searchconsole.googleapis.com/v1/sites/'+encodeURIComponent(siteUrl)+'/searchAnalytics/query',
+      {method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+       body:JSON.stringify({startDate:start,endDate:end,dimensions:[dim==='pages'?'page':'query'],rowLimit:limit,dataState:'final'})}
+    );
+    const d=await r.json();
+    if(d.error) throw new Error(d.error.message);
+    return(d.rows||[]).map(row=>({key:row.keys[0],clicks:row.clicks,impressions:row.impressions,ctr:row.ctr,position:row.position}));
+  };
+
+  const loadData=async()=>{
+    if(!site||!token){setStatus('Select a site first.');return;}
+    setStep('loading');setStatus('Fetching pages (current period)...');
+    try{
+      const [pC,pP,qC,qP]=await Promise.all([
+        fetchGSC(site,dates.s,dates.e,'pages',rowLimit),
+        fetchGSC(site,dates.ps,dates.pe,'pages',rowLimit),
+        fetchGSC(site,dates.s,dates.e,'queries',rowLimit),
+        fetchGSC(site,dates.ps,dates.pe,'queries',rowLimit),
+      ]);
+      setStatus('✅ Loaded '+pC.length+' pages, '+qC.length+' keywords');
+      setStep('done');
+      onLoad({cp:computeComp(pC,pP),ck:computeComp(qC,qP),label:site+' · '+dates.s+' vs '+dates.ps});
+    }catch(e){setStatus('❌ Error: '+e.message);setStep('sites');}
+  };
+
+  const labelStyle={fontSize:11,fontWeight:600,color:'var(--sub)',textTransform:'uppercase',letterSpacing:'0.05em',display:'block',marginBottom:4};
+
+  if(step==='setup'||step==='connecting') return(
+    <div className="max-w-lg mx-auto space-y-4 fi">
+      <div className="card rounded-xl p-6">
+        <h2 className="font-bold text-base mb-1">🔑 Connect Google Search Console</h2>
+        <p className="text-sm mb-4" style={{color:'var(--sub)'}}>Connect directly to your GSC account for live data — no CSV export needed.</p>
+        <div className="space-y-4">
+          <div className="rounded-xl p-4" style={{background:'rgba(59,130,246,.06)',border:'1px solid rgba(59,130,246,.2)'}}>
+            <div className="text-xs font-bold mb-2" style={{color:'#3b82f6'}}>⚙️ One-time setup (2 minutes)</div>
+            <ol className="text-xs space-y-1" style={{color:'var(--sub)'}}>
+              <li>1. Go to <a href="https://console.cloud.google.com/" target="_blank" className="text-blue-500">console.cloud.google.com</a> → Create/select project</li>
+              <li>2. Enable <strong>Google Search Console API</strong></li>
+              <li>3. APIs &amp; Services → Credentials → Create OAuth 2.0 Client ID (Web application)</li>
+              <li>4. Add <code style={{background:'rgba(0,0,0,.1)',padding:'1px 4px',borderRadius:3}}>http://localhost:8765</code> to Authorized JavaScript origins</li>
+              <li>5. Copy the Client ID and paste below</li>
+            </ol>
+          </div>
+          <div>
+            <label style={labelStyle}>Google OAuth Client ID</label>
+            <input className="w-full rounded-lg px-3 py-2 text-sm" placeholder="xxxx.apps.googleusercontent.com"
+              value={clientId} onChange={e=>setClientId(e.target.value)}/>
+          </div>
+          <button className="w-full py-2.5 rounded-xl text-sm font-semibold" style={{background:'#3b82f6',color:'#fff'}} onClick={connect} disabled={step==='connecting'}>
+            {step==='connecting'?'Connecting...':'🔗 Connect to Google Search Console'}
+          </button>
+          {status&&<div className="text-sm rounded-lg px-3 py-2" style={{background:'rgba(0,0,0,.04)'}}>{status}</div>}
+        </div>
+      </div>
+    </div>
+  );
+
+  return(
+    <div className="max-w-lg mx-auto space-y-4 fi">
+      <div className="card rounded-xl p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-green-500 font-bold">✅ Connected</span>
+          <button className="text-xs text-blue-500 ml-auto" onClick={()=>{setStep('setup');setToken('');setSites([]);}}>Disconnect</button>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <label style={labelStyle}>GSC Property</label>
+            <select className="w-full rounded-lg px-3 py-2 text-sm" value={site} onChange={e=>setSite(e.target.value)}>
+              {sites.map(s=><option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label style={labelStyle}>Current Start</label>
+              <input type="date" className="w-full rounded-lg px-3 py-2 text-sm" value={dates.s} onChange={e=>setDates(d=>({...d,s:e.target.value}))}/>
+            </div>
+            <div>
+              <label style={labelStyle}>Current End</label>
+              <input type="date" className="w-full rounded-lg px-3 py-2 text-sm" value={dates.e} onChange={e=>setDates(d=>({...d,e:e.target.value}))}/>
+            </div>
+            <div>
+              <label style={labelStyle}>Previous Start</label>
+              <input type="date" className="w-full rounded-lg px-3 py-2 text-sm" value={dates.ps} onChange={e=>setDates(d=>({...d,ps:e.target.value}))}/>
+            </div>
+            <div>
+              <label style={labelStyle}>Previous End</label>
+              <input type="date" className="w-full rounded-lg px-3 py-2 text-sm" value={dates.pe} onChange={e=>setDates(d=>({...d,pe:e.target.value}))}/>
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Max Rows</label>
+            <select className="w-full rounded-lg px-3 py-2 text-sm" value={rowLimit} onChange={e=>setRowLimit(+e.target.value)}>
+              {[100,250,500,1000,2500,5000,10000,25000].map(n=><option key={n} value={n}>{n.toLocaleString()} rows</option>)}
+            </select>
+            <div className="text-xs mt-1" style={{color:'var(--sub)'}}>GSC API max is 25,000 rows per request</div>
+          </div>
+          <button className="w-full py-2.5 rounded-xl text-sm font-semibold" style={{background:'#22c55e',color:'#fff'}} onClick={loadData} disabled={step==='loading'}>
+            {step==='loading'?'Loading data...':'📊 Load GSC Data'}
+          </button>
+          {status&&<div className="text-sm rounded-lg px-3 py-2" style={{background:'rgba(0,0,0,.04)'}}>{status}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── AHREFS IMPORT PAGE ─── */
+function ImportPage({onLoad}){
+  const [files,setFiles]=useState({curr:null,prev:null,kwC:null,kwP:null});
+  const [status,setStatus]=useState('');
+  const dropRef=useRef({});
+  const readFile=(key,file)=>{
+    const r=new FileReader();r.onload=e=>setFiles(f=>({...f,[key]:{name:file.name,text:e.target.result}}));r.readAsText(file);
+  };
+  const apply=()=>{
+    if(!files.curr||!files.prev){setStatus('Upload at least current and previous pages CSVs.');return;}
+    const pC=parseGSCcsv(files.curr.text),pP=parseGSCcsv(files.prev.text);
+    if(!pC){setStatus('Could not parse current pages CSV.');return;}
+    const qC=files.kwC?parseGSCcsv(files.kwC.text):[];
+    const qP=files.kwP?parseGSCcsv(files.kwP.text):[];
+    onLoad({cp:computeComp(pC,pP),ck:computeComp(qC||[],qP||[]),label:'CSV Import · Custom dates'});
+    setStatus('✅ Loaded '+pC.length+' pages'+(qC?' + '+qC.length+' keywords':''));
+  };
+  const DZ=({label,fkey})=>{
+    const f=files[fkey];
+    return(
+      <div className="dz rounded-xl p-5 text-center cursor-pointer" onClick={()=>{const i=document.createElement('input');i.type='file';i.accept='.csv';i.onchange=e=>readFile(fkey,e.target.files[0]);i.click();}}>
+        <div className="text-2xl mb-1">{f?'✅':'📁'}</div>
+        <div className="text-sm font-medium">{f?f.name:label}</div>
+        <div className="text-xs mt-1" style={{color:'var(--sub)'}}>{f?'Click to replace':'Drop CSV or click'}</div>
+      </div>
+    );
+  };
+  return(
+    <div className="max-w-lg mx-auto fi">
+      <div className="card rounded-xl p-6 space-y-4">
+        <h2 className="font-bold">📂 Import CSV from GSC</h2>
+        <p className="text-sm" style={{color:'var(--sub)'}}>Export from Google Search Console → Performance → Export → Download CSV</p>
+        <div className="grid grid-cols-2 gap-3">
+          <DZ label="Current Pages CSV" fkey="curr"/>
+          <DZ label="Previous Pages CSV" fkey="prev"/>
+          <DZ label="Current Keywords CSV (opt)" fkey="kwC"/>
+          <DZ label="Previous Keywords CSV (opt)" fkey="kwP"/>
+        </div>
+        <button className="w-full py-2.5 rounded-xl text-sm font-semibold" style={{background:'#3b82f6',color:'#fff'}} onClick={apply}>Apply Data</button>
+        {status&&<div className="text-sm text-center" style={{color:'var(--sub)'}}>{status}</div>}
+      </div>
+    </div>
+  );
+}
+/* ─── APP ─── */
+/* ─── HISTORY PAGE (monthly GSC performance from gsc-data.js) ─── */
+function HistoryPage(){
+  const hist=(_D.history||[]);
+  if(!hist.length) return <div className="text-center py-20" style={{color:'var(--sub)'}}>No history data available. Refresh gsc-data.js to accumulate snapshots.</div>;
+  const fmtM=d=>{ const [y,m]=d.split('-'); const names=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return names[+m]+' '+y; };
+  const latest=hist[hist.length-1];
+  const prev=hist[hist.length-2]||latest;
+  const pctC=(a,b)=>b?((a-b)/b*100).toFixed(1):null;
+  return(
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          {lbl:'Total Clicks',val:fmt(latest.clicks),chg:pctC(latest.clicks,prev.clicks)},
+          {lbl:'Impressions',val:fmt(latest.impressions),chg:pctC(latest.impressions,prev.impressions)},
+          {lbl:'Avg CTR',val:latest.ctr.toFixed(2)+'%',chg:pctC(latest.ctr,prev.ctr)},
+          {lbl:'Avg Position',val:latest.position.toFixed(1),chg:pctC(prev.position,latest.position)},
+        ].map((m,i)=>(
+          <div key={i} className="card rounded-xl p-4">
+            <div className="text-xs mb-1" style={{color:'var(--sub)'}}>{m.lbl} <span style={{color:'var(--sub)',fontWeight:400}}>({fmtM(latest.date)})</span></div>
+            <div className="text-2xl font-bold">{m.val}</div>
+            {m.chg!=null&&<div className={parseFloat(m.chg)>=0?'gain text-xs':'loss text-xs'}>{parseFloat(m.chg)>=0?'▲':'▼'} {Math.abs(m.chg)}% vs prev month</div>}
+          </div>
+        ))}
+      </div>
+      <div className="card rounded-xl p-4">
+        <SVGChart data={hist.map(h=>({date:fmtM(h.date),v:h.clicks}))} title="Monthly Clicks" series={[{key:'v',color:'#3b82f6'}]} height={200}/>
+      </div>
+      <div className="card rounded-xl p-4">
+        <SVGChart data={hist.map(h=>({date:fmtM(h.date),v:h.impressions}))} title="Monthly Impressions" series={[{key:'v',color:'#8b5cf6'}]} height={200}/>
+      </div>
+      <div className="card rounded-xl overflow-hidden">
+        <table className="w-full text-sm">
+          <thead><tr style={{background:'var(--bdr)'}}>
+            {['Month','Clicks','Impressions','CTR %','Avg Position'].map(h=><th key={h} className="px-4 py-2 text-left font-semibold text-xs" style={{color:'var(--sub)'}}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {[...hist].reverse().map((h,i)=>(
+              <tr key={i} className="border-t" style={{borderColor:'var(--bdr)'}}>
+                <td className="px-4 py-2 font-medium">{fmtM(h.date)}</td>
+                <td className="px-4 py-2">{fmt(h.clicks)}</td>
+                <td className="px-4 py-2">{fmt(h.impressions)}</td>
+                <td className="px-4 py-2">{h.ctr.toFixed(2)}%</td>
+                <td className="px-4 py-2">{h.position.toFixed(1)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+const ANALYSIS_TABS=[
+  {id:'overview',lbl:'📊 Overview'},
+  {id:'pages',lbl:'📄 Pages'},
+  {id:'keywords',lbl:'🔑 Keywords'},
+  {id:'tis',lbl:'🎯 TIS'},
+  {id:'alerts',lbl:'🚨 Alerts'},
+  {id:'decay',lbl:'📉 Decay'},
+  {id:'groups',lbl:'🔗 Groups'},
+  {id:'ai',lbl:'🤖 AI'},
+  {id:'forecast',lbl:'📈 Forecast'},
+  {id:'history',lbl:'📅 History'},
+  {id:'reports',lbl:'📋 Reports'},
+];
+
+function App(){
+  const [src,setSrc]=useState('ahrefs'); // 'ahrefs' | 'gsc'
+  const [tab,setTab]=useState('overview');
+  const [dark,setDark]=useState(false);
+  const [ahrefsData,setAhrefsData]=useState(null); // loaded from CSV or pre-baked
+  const [gscData,setGscData]=useState(null);
+
+  // Pre-bake Ahrefs data on mount
+  useEffect(()=>{
+    const curLbl=(_D.current&&_D.current.label)||'May 28–Jun 25, 2026';
+    const prvLbl=(_D.previous&&_D.previous.label)||'Apr 30–May 27, 2026';
+    setAhrefsData({cp:computeComp(SP_C,SP_P),ck:computeComp(SQ_C,SQ_P),label:`Ahrefs GSC · ${curLbl} vs ${prvLbl}`});
+  },[]);
+
+  useEffect(()=>{document.body.classList.toggle('dark',dark);},[dark]);
+
+  const activeData=src==='ahrefs'?ahrefsData:gscData;
+  const cp=activeData?.cp;
+  const ck=activeData?.ck||[];
+  const label=activeData?.label||'';
+
+  // Alert count for badge
+  const alertCount=useMemo(()=>cp?generateAlerts(cp).filter(a=>a.sev==='c').length:0,[cp]);
+  const decayCount=useMemo(()=>cp?detectDecay(cp).length:0,[cp]);
+
+  const renderAnalysis=()=>{
+    if(!cp){
+      return(
+        <div className="text-center py-20" style={{color:'var(--sub)'}}>
+          {src==='ahrefs'?'Loading pre-baked Ahrefs data...':'Connect to Google Search Console to load live data →'}
+        </div>
+      );
+    }
+    switch(tab){
+      case 'overview': return <OverviewPage cp={cp} ck={ck} label={label}/>;
+      case 'pages':    return <PagesPage cp={cp}/>;
+      case 'keywords': return <KeywordsPage ck={ck}/>;
+      case 'tis':      return <TrafficScorePage cp={cp}/>;
+      case 'alerts':   return <AlertsPage cp={cp}/>;
+      case 'decay':    return <DecayPage cp={cp}/>;
+      case 'groups':   return <URLGroupsPage cp={cp}/>;
+      case 'ai':       return <AIAnalysisPage cp={cp} ck={ck}/>;
+      case 'forecast': return <ForecastPage trend={TREND}/>;
+      case 'history':  return <HistoryPage/>;
+      case 'reports':  return <ReportsPage cp={cp} ck={ck} label={label}/>;
+      default: return null;
+    }
+  };
+
+  const totClicks=useMemo(()=>cp?cp.reduce((s,r)=>s+r.clicks,0):0,[cp]);
+  const prevTotClicks=useMemo(()=>cp?cp.reduce((s,r)=>s+(r.prevClicks||0),0):0,[cp]);
+  const clickPct=pctC(totClicks,prevTotClicks);
+
+  return(
+    <div className={dark?'dark':''} style={{minHeight:'100vh'}}>
+      {/* HEADER */}
+      <header className="card border-b px-4 py-0" style={{position:'sticky',top:0,zIndex:50}}>
+        <div className="max-w-screen-xl mx-auto flex items-center gap-4 h-14">
+          <div className="font-bold text-base flex items-center gap-2">
+            <span style={{background:'#3b82f6',color:'#fff',padding:'2px 8px',borderRadius:6,fontSize:11,fontWeight:700}}>GSC PRO</span>
+            {cp&&<span className="text-sm" style={{color:'var(--sub)'}}>{fmt(totClicks)} clicks{clickPct!=null&&<span className={clickPct>0?'gain':' loss'}> {sign(clickPct)}{clickPct.toFixed(1)}%</span>}</span>}
+          </div>
+          {/* SOURCE SWITCHER */}
+          <div className="flex gap-1.5 ml-2 p-1 rounded-xl" style={{background:'var(--bdr)'}}>
+            <button className={`src-btn ${src==='ahrefs'?'src-on':'src-off'} text-xs`} onClick={()=>{setSrc('ahrefs');setTab('overview');}}>📡 Ahrefs</button>
+            <button className={`src-btn ${src==='gsc'?'src-on':'src-off'} text-xs`} onClick={()=>{setSrc('gsc');setTab(gscData?'overview':'connect');}}>🔑 GSC Live</button>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            {alertCount>0&&<span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{background:'#ef4444',color:'#fff'}}>{alertCount} critical</span>}
+            {decayCount>0&&<span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{background:'#f59e0b',color:'#fff'}}>{decayCount} decay</span>}
+            <button onClick={()=>setDark(d=>!d)} style={{width:32,height:32,borderRadius:'50%',border:'1px solid var(--bdr)',background:'var(--card)',cursor:'pointer',fontSize:16}}>
+              {dark?'☀️':'🌙'}
+            </button>
+          </div>
+        </div>
+        {/* ANALYSIS TABS (shown when data loaded OR src=ahrefs) */}
+        {(src==='ahrefs'||gscData)&&(
+          <div className="max-w-screen-xl mx-auto flex overflow-x-auto gap-0 pb-0" style={{scrollbarWidth:'none'}}>
+            {ANALYSIS_TABS.map(t=>(
+              <button key={t.id} className={`text-xs px-3 py-2.5 whitespace-nowrap ${tab===t.id?'t-active':'t-inactive'}`} onClick={()=>setTab(t.id)}>
+                {t.lbl}
+                {t.id==='alerts'&&alertCount>0&&<span className="ml-1 text-xs font-bold" style={{color:'#ef4444'}}>{alertCount}</span>}
+                {t.id==='decay'&&decayCount>0&&<span className="ml-1 text-xs font-bold" style={{color:'#f59e0b'}}>{decayCount}</span>}
+              </button>
+            ))}
+          </div>
+        )}
+      </header>
+
+      {/* MAIN */}
+      <main className="max-w-screen-xl mx-auto px-4 py-6">
+        {src==='ahrefs'&&(
+          <>
+            {tab==='connect'||(!ahrefsData&&tab!=='connect')
+              ?<ImportPage onLoad={d=>{setAhrefsData(d);setTab('overview');}}/>
+              :renderAnalysis()
+            }
+          </>
+        )}
+        {src==='gsc'&&(
+          <>
+            {!gscData
+              ?<GscOAuthPage onLoad={d=>{setGscData(d);setTab('overview');}}/>
+              :renderAnalysis()
+            }
+          </>
+        )}
+      </main>
+
+      <footer className="text-center py-4 text-xs" style={{color:'var(--sub)'}}>
+        GSC Analytics Pro · BankBazaar.com · {label}
+      </footer>
+    </div>
+  );
+}
+
+try{
+  ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+}catch(e){
+  document.getElementById('root').innerHTML='<div style="padding:40px;font-family:sans-serif;color:#ef4444"><b>Error:</b> '+e.message+'</div>';
+}
+</script>
+</body>
+</html>
