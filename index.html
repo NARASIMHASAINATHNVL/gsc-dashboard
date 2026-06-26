@@ -1329,6 +1329,330 @@ function HistoryPage(){
   );
 }
 
+/* ─── GA4 ANALYTICS PAGE ─── */
+function GA4Page(){
+  const [step,setStep]=useState('idle'); // idle|connecting|properties|loading|done|error
+  const [token,setToken]=useState('');
+  const [properties,setProperties]=useState([]);
+  const [propId,setPropId]=useState('');
+  const [propName,setPropName]=useState('');
+  const [status,setStatus]=useState('');
+  const [data,setData]=useState(null);
+  const [dateRange,setDateRange]=useState('30daysAgo');
+  const tokenRef=useRef(null);
+
+  const DATE_OPTS=[
+    {id:'7daysAgo',label:'Last 7 days'},
+    {id:'30daysAgo',label:'Last 30 days'},
+    {id:'90daysAgo',label:'Last 90 days'},
+    {id:'180daysAgo',label:'Last 6 months'},
+  ];
+
+  const connect=()=>{
+    if(!window.google?.accounts?.oauth2){setStatus('Google Identity Services not loaded.');return;}
+    setStep('connecting');setStatus('Opening Google sign-in...');
+    tokenRef.current=window.google.accounts.oauth2.initTokenClient({
+      client_id:'464969597167-iplinfr9l74uat3sjp21oam0vb73okoj.apps.googleusercontent.com',
+      scope:'https://www.googleapis.com/auth/analytics.readonly',
+      callback:async(resp)=>{
+        if(resp.error){setStatus('Auth error: '+resp.error);setStep('idle');return;}
+        setToken(resp.access_token);
+        setStep('properties');setStatus('Fetching GA4 properties...');
+        try{
+          const r=await fetch('https://analyticsadmin.googleapis.com/v1beta/accountSummaries',{headers:{Authorization:'Bearer '+resp.access_token}});
+          const d=await r.json();
+          const props=[];
+          (d.accountSummaries||[]).forEach(acc=>{
+            (acc.propertySummaries||[]).forEach(p=>{
+              props.push({id:p.property.replace('properties/',''),name:p.displayName,account:acc.displayName});
+            });
+          });
+          setProperties(props);
+          if(props.length>0){setPropId(props[0].id);setPropName(props[0].name);}
+          setStatus('✅ '+props.length+' properties found');
+        }catch(e){setStatus('Error: '+e.message);setStep('idle');}
+      }
+    });
+    tokenRef.current.requestAccessToken();
+  };
+
+  const fetchData=async()=>{
+    if(!propId||!token)return;
+    setStep('loading');setStatus('Fetching analytics data...');
+    const base='https://analyticsdata.googleapis.com/v1beta/properties/'+propId;
+    const hdr={Authorization:'Bearer '+token,'Content-Type':'application/json'};
+    const endDate='yesterday';
+    const startDate=dateRange;
+    try{
+      const [overviewR,channelsR,pagesR,devicesR,countriesR,trendR]=await Promise.all([
+        // Overview metrics
+        fetch(base+':runReport',{method:'POST',headers:hdr,body:JSON.stringify({
+          dateRanges:[{startDate,endDate}],
+          metrics:[{name:'sessions'},{name:'totalUsers'},{name:'newUsers'},{name:'screenPageViews'},{name:'bounceRate'},{name:'averageSessionDuration'},{name:'engagementRate'}]
+        })}),
+        // Traffic channels
+        fetch(base+':runReport',{method:'POST',headers:hdr,body:JSON.stringify({
+          dateRanges:[{startDate,endDate}],
+          dimensions:[{name:'sessionDefaultChannelGroup'}],
+          metrics:[{name:'sessions'},{name:'totalUsers'},{name:'bounceRate'}],
+          orderBys:[{metric:{metricName:'sessions'},desc:true}],limit:10
+        })}),
+        // Top pages
+        fetch(base+':runReport',{method:'POST',headers:hdr,body:JSON.stringify({
+          dateRanges:[{startDate,endDate}],
+          dimensions:[{name:'pagePath'}],
+          metrics:[{name:'screenPageViews'},{name:'totalUsers'},{name:'averageSessionDuration'},{name:'bounceRate'}],
+          orderBys:[{metric:{metricName:'screenPageViews'},desc:true}],limit:20
+        })}),
+        // Device breakdown
+        fetch(base+':runReport',{method:'POST',headers:hdr,body:JSON.stringify({
+          dateRanges:[{startDate,endDate}],
+          dimensions:[{name:'deviceCategory'}],
+          metrics:[{name:'sessions'},{name:'totalUsers'}]
+        })}),
+        // Country breakdown
+        fetch(base+':runReport',{method:'POST',headers:hdr,body:JSON.stringify({
+          dateRanges:[{startDate,endDate}],
+          dimensions:[{name:'country'}],
+          metrics:[{name:'sessions'},{name:'totalUsers'}],
+          orderBys:[{metric:{metricName:'sessions'},desc:true}],limit:10
+        })}),
+        // 30-day trend
+        fetch(base+':runReport',{method:'POST',headers:hdr,body:JSON.stringify({
+          dateRanges:[{startDate,endDate}],
+          dimensions:[{name:'date'}],
+          metrics:[{name:'sessions'},{name:'totalUsers'}],
+          orderBys:[{dimension:{dimensionName:'date'}}],limit:180
+        })})
+      ]);
+      const [ov,ch,pg,dv,co,tr]=await Promise.all([overviewR,channelsR,pagesR,devicesR,countriesR,trendR].map(r=>r.json()));
+      const metVal=(report,idx)=>parseFloat(report?.rows?.[0]?.metricValues?.[idx]?.value||0);
+      const overview={
+        sessions:metVal(ov,0),users:metVal(ov,1),newUsers:metVal(ov,2),
+        pageviews:metVal(ov,3),bounceRate:(metVal(ov,4)*100).toFixed(1),
+        avgDuration:metVal(ov,5),engagementRate:(metVal(ov,6)*100).toFixed(1)
+      };
+      const channels=(ch.rows||[]).map(r=>({
+        channel:r.dimensionValues[0].value,sessions:+r.metricValues[0].value,
+        users:+r.metricValues[1].value,bounce:(+r.metricValues[2].value*100).toFixed(1)
+      }));
+      const pages=(pg.rows||[]).map(r=>({
+        path:r.dimensionValues[0].value,views:+r.metricValues[0].value,
+        users:+r.metricValues[1].value,duration:(+r.metricValues[2].value).toFixed(0),
+        bounce:(+r.metricValues[3].value*100).toFixed(1)
+      }));
+      const devices=(dv.rows||[]).map(r=>({device:r.dimensionValues[0].value,sessions:+r.metricValues[0].value,users:+r.metricValues[1].value}));
+      const countries=(co.rows||[]).map(r=>({country:r.dimensionValues[0].value,sessions:+r.metricValues[0].value,users:+r.metricValues[1].value}));
+      const trend=(tr.rows||[]).map(r=>({date:r.dimensionValues[0].value,sessions:+r.metricValues[0].value,users:+r.metricValues[1].value}));
+      setData({overview,channels,pages,devices,countries,trend,propName,dateRange});
+      setStep('done');setStatus('✅ Loaded');
+    }catch(e){setStatus('Error: '+e.message);setStep('properties');}
+  };
+
+  const fmtSec=s=>{const m=Math.floor(s/60);const sec=Math.round(s%60);return m+'m '+sec+'s';};
+  const CHANNEL_COLORS={'Organic Search':'#22c55e','Direct':'#3b82f6','Referral':'#8b5cf6','Organic Social':'#f59e0b','Email':'#06b6d4','Paid Search':'#ef4444','(Other)':'#94a3b8','Unassigned':'#94a3b8'};
+  const chColor=ch=>CHANNEL_COLORS[ch]||'#94a3b8';
+
+  if(step==='idle'||step==='connecting'){return(
+    <div className="card rounded-xl p-8 max-w-md mx-auto text-center fi" style={{marginTop:40}}>
+      <div style={{fontSize:48,marginBottom:12}}>📊</div>
+      <h2 style={{fontSize:18,fontWeight:700,marginBottom:8}}>Connect Google Analytics 4</h2>
+      <p style={{fontSize:13,color:'var(--sub)',marginBottom:24}}>See sessions, users, bounce rate, traffic sources and top pages from your GA4 property.</p>
+      {status&&<div style={{fontSize:12,color:'var(--sub)',marginBottom:16}}>{status}</div>}
+      <button onClick={connect} disabled={step==='connecting'} style={{width:'100%',padding:'11px',borderRadius:8,background:'linear-gradient(135deg,#4285f4,#34a853)',color:'#fff',border:'none',cursor:'pointer',fontWeight:700,fontSize:14}}>
+        {step==='connecting'?'⟳ Connecting...':'🔑 Connect with Google'}
+      </button>
+    </div>
+  );}
+
+  if(step==='properties'){return(
+    <div className="card rounded-xl p-6 max-w-lg mx-auto fi" style={{marginTop:40}}>
+      <h2 style={{fontSize:16,fontWeight:700,marginBottom:4}}>Select GA4 Property</h2>
+      <p style={{fontSize:12,color:'var(--sub)',marginBottom:16}}>{status}</p>
+      <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:16,maxHeight:300,overflowY:'auto'}}>
+        {properties.map(p=>(
+          <button key={p.id} onClick={()=>{setPropId(p.id);setPropName(p.name);}} style={{padding:'10px 14px',borderRadius:8,border:'2px solid',borderColor:propId===p.id?'#4285f4':'var(--bdr)',background:propId===p.id?'rgba(66,133,244,.08)':'transparent',textAlign:'left',cursor:'pointer',transition:'all .15s'}}>
+            <div style={{fontWeight:600,fontSize:13}}>{p.name}</div>
+            <div style={{fontSize:11,color:'var(--sub)'}}>{p.account} · ID: {p.id}</div>
+          </button>
+        ))}
+      </div>
+      <div style={{marginBottom:16}}>
+        <label style={{fontSize:11,fontWeight:600,color:'var(--sub)',display:'block',marginBottom:6}}>DATE RANGE</label>
+        <select value={dateRange} onChange={e=>setDateRange(e.target.value)} style={{width:'100%',padding:'8px',borderRadius:6,border:'1px solid var(--bdr)',background:'var(--card)',color:'var(--tx)',fontSize:13}}>
+          {DATE_OPTS.map(o=><option key={o.id} value={o.id}>{o.label}</option>)}
+        </select>
+      </div>
+      <button onClick={fetchData} disabled={!propId} style={{width:'100%',padding:'10px',borderRadius:8,background:'#4285f4',color:'#fff',border:'none',cursor:'pointer',fontWeight:700,fontSize:14}}>
+        Load Analytics Data →
+      </button>
+    </div>
+  );}
+
+  if(step==='loading'){return(
+    <div className="text-center py-20" style={{color:'var(--sub)'}}>
+      <div style={{fontSize:32,marginBottom:12}}>⟳</div>
+      <div>Loading GA4 data for {propName}...</div>
+    </div>
+  );}
+
+  if(!data)return null;
+  const {overview,channels,pages,devices,countries,trend}=data;
+  const maxCh=Math.max(...channels.map(c=>c.sessions),1);
+  const maxTrend=Math.max(...trend.map(t=>t.sessions),1);
+  const tW=560,tH=80;
+
+  return(
+    <div className="space-y-6 fi">
+      {/* Header + controls */}
+      <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+        <div>
+          <h2 style={{fontSize:16,fontWeight:700,margin:0}}>{propName}</h2>
+          <span style={{fontSize:12,color:'var(--sub)'}}>GA4 Analytics · {DATE_OPTS.find(o=>o.id===dateRange)?.label}</span>
+        </div>
+        <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+          <select value={dateRange} onChange={e=>setDateRange(e.target.value)} style={{padding:'6px 10px',borderRadius:6,border:'1px solid var(--bdr)',background:'var(--card)',color:'var(--tx)',fontSize:12}}>
+            {DATE_OPTS.map(o=><option key={o.id} value={o.id}>{o.label}</option>)}
+          </select>
+          <button onClick={fetchData} style={{padding:'6px 14px',borderRadius:6,background:'#4285f4',color:'#fff',border:'none',cursor:'pointer',fontWeight:600,fontSize:12}}>Refresh</button>
+          <button onClick={()=>{setStep('idle');setData(null);setToken('');}} style={{padding:'6px 12px',borderRadius:6,border:'1px solid var(--bdr)',background:'transparent',color:'var(--sub)',cursor:'pointer',fontSize:12}}>Disconnect</button>
+        </div>
+      </div>
+
+      {/* Metric cards */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:12}}>
+        {[
+          {label:'Sessions',value:fmt(overview.sessions),icon:'🔄',color:'#3b82f6'},
+          {label:'Users',value:fmt(overview.users),icon:'👥',color:'#22c55e'},
+          {label:'New Users',value:fmt(overview.newUsers),icon:'✨',color:'#8b5cf6'},
+          {label:'Pageviews',value:fmt(overview.pageviews),icon:'📄',color:'#f59e0b'},
+          {label:'Bounce Rate',value:overview.bounceRate+'%',icon:'↩️',color:'#ef4444'},
+          {label:'Avg Duration',value:fmtSec(overview.avgDuration),icon:'⏱',color:'#06b6d4'},
+          {label:'Engagement',value:overview.engagementRate+'%',icon:'💡',color:'#10b981'},
+        ].map(m=>(
+          <div key={m.label} className="card rounded-xl p-4">
+            <div style={{fontSize:20,marginBottom:4}}>{m.icon}</div>
+            <div style={{fontSize:22,fontWeight:800,color:m.color}}>{m.value}</div>
+            <div style={{fontSize:11,color:'var(--sub)',fontWeight:600,textTransform:'uppercase',letterSpacing:'.04em'}}>{m.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Sessions trend sparkline */}
+      {trend.length>0&&(
+        <div className="card rounded-xl p-5">
+          <div style={{fontWeight:700,fontSize:14,marginBottom:12}}>Sessions Trend</div>
+          <div style={{overflowX:'auto'}}>
+            <svg viewBox={'0 0 '+tW+' '+tH} style={{width:'100%',height:tH}}>
+              <defs><linearGradient id="ga4grad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#4285f4" stopOpacity=".3"/><stop offset="100%" stopColor="#4285f4" stopOpacity="0"/></linearGradient></defs>
+              {(()=>{
+                const pts=trend.map((t,i)=>({x:i/(trend.length-1||1)*tW,y:tH-4-(t.sessions/maxTrend)*(tH-8)}));
+                const line=pts.map((p,i)=>(i?'L':'M')+p.x.toFixed(1)+','+p.y.toFixed(1)).join(' ');
+                const area=line+' L'+pts[pts.length-1].x+','+tH+' L0,'+tH+' Z';
+                return(<><path d={area} fill="url(#ga4grad)"/><path d={line} fill="none" stroke="#4285f4" strokeWidth="2"/></>);
+              })()}
+            </svg>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:10,color:'var(--sub)',marginTop:2}}>
+              <span>{trend[0]?.date.replace(/(\d{4})(\d{2})(\d{2})/,'$2/$3')}</span>
+              <span>{trend[trend.length-1]?.date.replace(/(\d{4})(\d{2})(\d{2})/,'$2/$3')}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+        {/* Traffic channels */}
+        <div className="card rounded-xl p-5">
+          <div style={{fontWeight:700,fontSize:14,marginBottom:14}}>Traffic Channels</div>
+          <div style={{display:'flex',flexDirection:'column',gap:10}}>
+            {channels.map(c=>(
+              <div key={c.channel}>
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:3}}>
+                  <span style={{display:'flex',alignItems:'center',gap:6}}>
+                    <span style={{width:8,height:8,borderRadius:'50%',background:chColor(c.channel),display:'inline-block',flexShrink:0}}></span>
+                    <span style={{fontWeight:600}}>{c.channel}</span>
+                  </span>
+                  <span style={{color:'var(--sub)'}}>{fmt(c.sessions)}</span>
+                </div>
+                <div style={{height:5,background:'var(--bdr)',borderRadius:3}}>
+                  <div style={{height:'100%',width:(c.sessions/maxCh*100).toFixed(1)+'%',background:chColor(c.channel),borderRadius:3,transition:'width .5s'}}></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Device + Country */}
+        <div style={{display:'flex',flexDirection:'column',gap:16}}>
+          <div className="card rounded-xl p-5">
+            <div style={{fontWeight:700,fontSize:14,marginBottom:10}}>Devices</div>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+              {devices.map(d=>{
+                const tot=devices.reduce((s,x)=>s+x.sessions,0)||1;
+                const pct=(d.sessions/tot*100).toFixed(0);
+                const icon=d.device==='mobile'?'📱':d.device==='desktop'?'🖥️':'📟';
+                return(
+                  <div key={d.device} style={{flex:1,minWidth:80,textAlign:'center',padding:'10px 8px',borderRadius:8,background:'rgba(66,133,244,.06)',border:'1px solid rgba(66,133,244,.15)'}}>
+                    <div style={{fontSize:22}}>{icon}</div>
+                    <div style={{fontWeight:800,fontSize:16,color:'#4285f4'}}>{pct}%</div>
+                    <div style={{fontSize:11,color:'var(--sub)',textTransform:'capitalize'}}>{d.device}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="card rounded-xl p-5">
+            <div style={{fontWeight:700,fontSize:14,marginBottom:10}}>Top Countries</div>
+            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+              {countries.slice(0,5).map((c,i)=>(
+                <div key={c.country} style={{display:'flex',alignItems:'center',gap:8,fontSize:12}}>
+                  <span style={{color:'var(--sub)',width:14,fontSize:11,fontWeight:700}}>#{i+1}</span>
+                  <span style={{flex:1,fontWeight:600}}>{c.country}</span>
+                  <span style={{color:'var(--sub)'}}>{fmt(c.sessions)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Top pages */}
+      <div className="card rounded-xl p-5">
+        <div style={{fontWeight:700,fontSize:14,marginBottom:14}}>Top Pages</div>
+               <div className="tbl-wrap">
+          <table style={{width:'100%',fontSize:12,borderCollapse:'collapse'}}>
+            <thead>
+              <tr style={{borderBottom:'1px solid var(--bdr)'}}>
+                <th style={{textAlign:'left',padding:'6px 8px',color:'var(--sub)',fontWeight:600,fontSize:11}}>#</th>
+                <th style={{textAlign:'left',padding:'6px 8px',color:'var(--sub)',fontWeight:600,fontSize:11}}>Page</th>
+                <th style={{textAlign:'right',padding:'6px 8px',color:'var(--sub)',fontWeight:600,fontSize:11}}>Views</th>
+                <th style={{textAlign:'right',padding:'6px 8px',color:'var(--sub)',fontWeight:600,fontSize:11}}>Users</th>
+                <th style={{textAlign:'right',padding:'6px 8px',color:'var(--sub)',fontWeight:600,fontSize:11}}>Dur.</th>
+                <th style={{textAlign:'right',padding:'6px 8px',color:'var(--sub)',fontWeight:600,fontSize:11}}>Bounce</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pages.map((p,i)=>(
+                <tr key={p.path} className="row-hover" style={{borderBottom:'1px solid var(--bdr)'}}>
+                  <td style={{padding:'6px 8px',color:'var(--sub)',fontSize:11}}>{i+1}</td>
+                  <td style={{padding:'6px 8px',maxWidth:340,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                    <a href={'https://www.bankbazaar.com'+p.path} target="_blank" rel="noreferrer" style={{color:'var(--tx)',textDecoration:'none'}}>{p.path}</a>
+                  </td>
+                  <td style={{textAlign:'right',padding:'6px 8px',fontWeight:600,color:'#3b82f6'}}>{fmt(p.views)}</td>
+                  <td style={{textAlign:'right',padding:'6px 8px'}}>{fmt(p.users)}</td>
+                  <td style={{textAlign:'right',padding:'6px 8px',color:'var(--sub)'}}>{fmtSec(+p.duration)}</td>
+                  <td style={{textAlign:'right',padding:'6px 8px',color:+p.bounce>60?'#ef4444':+p.bounce<40?'#22c55e':'#f59e0b',fontWeight:600}}>{p.bounce}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── ANALYSIS TABS ─── */
 const ANALYSIS_TABS=[
   {id:'overview',lbl:'📊 Overview'},
   {id:'pages',lbl:'📄 Pages'},
@@ -1341,10 +1665,11 @@ const ANALYSIS_TABS=[
   {id:'forecast',lbl:'📈 Forecast'},
   {id:'history',lbl:'📅 History'},
   {id:'reports',lbl:'📋 Reports'},
+  {id:'analytics',lbl:'📊 GA4 Analytics'},
 ];
 
+/* ─── APP ─── */
 const DASHBOARD_PASSWORD='bankbazaar@gsc2024';
-
 function LoginScreen({onAuth}){
   const [pw,setPw]=useState('');
   const [err,setErr]=useState('');
@@ -1356,109 +1681,75 @@ function LoginScreen({onAuth}){
   return(
     <div className="login-wrap">
       <div className="login-card fi">
-        <div style={{textAlign:'center',marginBottom:24}}>
-          <div style={{fontSize:28,marginBottom:8}}>📊</div>
-          <div style={{fontSize:18,fontWeight:800,color:'#fff',marginBottom:4}}>GSC Analytics Pro</div>
-          <div style={{fontSize:13,color:'rgba(255,255,255,.5)'}}>BankBazaar.com · SEO Dashboard</div>
+        <div style={{textAlign:'center',marginBottom:20}}>
+          <span style={{background:'#ff6600',color:'#fff',padding:'4px 12px',borderRadius:8,fontSize:13,fontWeight:800,letterSpacing:'.04em'}}>GSC PRO</span>
+          <div style={{fontSize:18,fontWeight:700,marginTop:14}}>BankBazaar SEO Dashboard</div>
+          <div style={{fontSize:13,color:'rgba(255,255,255,.5)',marginTop:4}}>Enter password to continue</div>
         </div>
-        <div style={{marginBottom:12}}>
-          <label style={{fontSize:11,fontWeight:600,color:'rgba(255,255,255,.55)',display:'block',marginBottom:6,textTransform:'uppercase',letterSpacing:'.05em'}}>Password</label>
-          <div style={{position:'relative'}}>
-            <input
-              type={show?'text':'password'}
-              value={pw}
-              onChange={e=>{setPw(e.target.value);setErr('');}}
-              onKeyDown={e=>e.key==='Enter'&&submit()}
-              placeholder="Enter dashboard password"
-              style={{width:'100%',padding:'10px 40px 10px 12px',borderRadius:8,border:'1px solid rgba(255,255,255,.2)',background:'rgba(255,255,255,.08)',color:'#fff',fontSize:14,outline:'none',boxSizing:'border-box'}}
-            />
-            <button onClick={()=>setShow(s=>!s)} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',color:'rgba(255,255,255,.5)',cursor:'pointer',fontSize:16}}>{show?'🙈':'👁'}</button>
-          </div>
+        <div style={{position:'relative',marginBottom:12}}>
+          <input type={show?'text':'password'} value={pw} onChange={e=>setPw(e.target.value)}
+            onKeyDown={e=>e.key==='Enter'&&submit()}
+            placeholder="Dashboard password" autoFocus
+            style={{width:'100%',padding:'10px 40px 10px 14px',borderRadius:8,border:'1px solid rgba(255,255,255,.15)',background:'rgba(255,255,255,.07)',color:'#fff',fontSize:14,outline:'none',boxSizing:'border-box'}}/>
+          <button onClick={()=>setShow(s=>!s)} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'rgba(255,255,255,.4)',fontSize:16}}>{show?'🙈':'👁'}</button>
         </div>
-        {err&&<div style={{color:'#fca5a5',fontSize:12,marginBottom:10,textAlign:'center'}}>{err}</div>}
-        <button onClick={submit} style={{width:'100%',padding:'11px',borderRadius:8,background:'linear-gradient(135deg,#ff6600,#ff8533)',color:'#fff',border:'none',cursor:'pointer',fontWeight:700,fontSize:14,letterSpacing:'.02em'}}>
+        {err&&<div style={{fontSize:12,color:'#ef4444',marginBottom:10,textAlign:'center'}}>{err}</div>}
+        <button onClick={submit} style={{width:'100%',padding:'11px',borderRadius:8,background:'linear-gradient(135deg,#ff6600,#ff8533)',color:'#fff',border:'none',cursor:'pointer',fontWeight:700,fontSize:14}}>
           Unlock Dashboard →
         </button>
-        <div style={{textAlign:'center',marginTop:14,fontSize:11,color:'rgba(255,255,255,.3)'}}>Contact your SEO team lead for access</div>
       </div>
     </div>
   );
 }
 
 function App(){
-  const [authed,setAuthed]=useState(false);
-  const [src,setSrc]=useState('ahrefs'); // 'ahrefs' | 'gsc'
+  /* ── hooks first (before any early return) ── */
+  const [src,setSrc]=useState('ahrefs');
   const [tab,setTab]=useState('overview');
   const [dark,setDark]=useState(false);
-  const [ahrefsData,setAhrefsData]=useState(null); // loaded from CSV or pre-baked
+  const [ahrefsData,setAhrefsData]=useState(null);
   const [gscData,setGscData]=useState(null);
-  const [gscMeta,setGscMeta]=useState(null); // {token,site,sites,dates}
+  const [authed,setAuthed]=useState(false);
+  const [gscMeta,setGscMeta]=useState(null);
   const [editDates,setEditDates]=useState(null);
   const [editSite,setEditSite]=useState('');
   const [preset,setPreset]=useState('1m');
   const [refetching,setRefetching]=useState(false);
   const [mobileMenuOpen,setMobileMenuOpen]=useState(false);
 
-  const PRESETS=[
-    {id:'1m', label:'Last 1 Month vs Prev Month'},
-    {id:'3m', label:'Last 3 Months vs Prev Period'},
-    {id:'6m', label:'Last 6 Months vs Prev Period'},
-    {id:'custom', label:'Custom Date Range'},
-  ];
-
-  const presetToDates=(p)=>{
-    const today=new Date();
-    const fmt=d=>d.toISOString().split('T')[0];
-    const sub=(d,days)=>{const r=new Date(d);r.setDate(r.getDate()-days);return r;};
-    if(p==='1m'){
-      const e=sub(today,1); const s=sub(e,29);
-      const pe=sub(s,1);    const ps=sub(pe,29);
-      return{s:fmt(s),e:fmt(e),ps:fmt(ps),pe:fmt(pe)};
-    }
-    if(p==='3m'){
-      const e=sub(today,1); const s=sub(e,89);
-      const pe=sub(s,1);    const ps=sub(pe,89);
-      return{s:fmt(s),e:fmt(e),ps:fmt(ps),pe:fmt(pe)};
-    }
-    if(p==='6m'){
-      const e=sub(today,1); const s=sub(e,179);
-      const pe=sub(s,1);    const ps=sub(pe,179);
-      return{s:fmt(s),e:fmt(e),ps:fmt(ps),pe:fmt(pe)};
-    }
-    return null;
-  };
-
-  const handlePresetChange=(p)=>{
-    setPreset(p);
-    if(p!=='custom'){const d=presetToDates(p);if(d)setEditDates(d);}
-  };
-
-  // Pre-bake Ahrefs data on mount
   useEffect(()=>{
     const curLbl=(_D.current&&_D.current.label)||'May 28–Jun 25, 2026';
     const prvLbl=(_D.previous&&_D.previous.label)||'Apr 30–May 27, 2026';
     setAhrefsData({cp:computeComp(SP_C,SP_P),ck:computeComp(SQ_C,SQ_P),label:`Ahrefs GSC · ${curLbl} vs ${prvLbl}`});
   },[]);
-
   useEffect(()=>{document.body.classList.toggle('dark',dark);},[dark]);
-  useEffect(()=>{
-    let link=document.querySelector('link[rel="icon"]');
-    if(!link){link=document.createElement('link');link.rel='icon';document.head.appendChild(link);}
-    if(dark){
-      link.href=`data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23ff6600'/><text x='16' y='23' font-family='Arial Black,Arial' font-size='20' font-weight='900' fill='white' text-anchor='middle'>B</text></svg>`;
-    }else{
-      link.href='https://www.bankbazaar.com/images/favicon.ico';
-    }
-  },[dark]);
 
   const activeData=src==='ahrefs'?ahrefsData:gscData;
   const cp=activeData?.cp;
   const ck=activeData?.ck||[];
   const label=activeData?.label||'';
-
-  // Alert count for badge
   const alertCount=useMemo(()=>cp?generateAlerts(cp).filter(a=>a.sev==='c').length:0,[cp]);
   const decayCount=useMemo(()=>cp?detectDecay(cp).length:0,[cp]);
+  const totClicks=useMemo(()=>cp?cp.reduce((s,r)=>s+r.clicks,0):0,[cp]);
+  const prevTotClicks=useMemo(()=>cp?cp.reduce((s,r)=>s+(r.prevClicks||0),0):0,[cp]);
+  const clickPct=pctC(totClicks,prevTotClicks);
+
+  const PRESETS=[
+    {id:'1m',label:'Last 1 Month vs Prev Month'},
+    {id:'3m',label:'Last 3 Months vs Prev Period'},
+    {id:'6m',label:'Last 6 Months vs Prev Period'},
+    {id:'custom',label:'Custom Date Range'},
+  ];
+  const presetToDates=(p)=>{
+    const today=new Date();
+    const fmtD=d=>d.toISOString().split('T')[0];
+    const sub=(d,days)=>{const r=new Date(d);r.setDate(r.getDate()-days);return r;};
+    if(p==='1m'){const e=sub(today,1),s=sub(e,29),pe=sub(s,1),ps=sub(pe,29);return{s:fmtD(s),e:fmtD(e),ps:fmtD(ps),pe:fmtD(pe)};}
+    if(p==='3m'){const e=sub(today,1),s=sub(e,89),pe=sub(s,1),ps=sub(pe,89);return{s:fmtD(s),e:fmtD(e),ps:fmtD(ps),pe:fmtD(pe)};}
+    if(p==='6m'){const e=sub(today,1),s=sub(e,179),pe=sub(s,1),ps=sub(pe,179);return{s:fmtD(s),e:fmtD(e),ps:fmtD(ps),pe:fmtD(pe)};}
+    return null;
+  };
+  const handlePresetChange=(p)=>{setPreset(p);if(p!=='custom'){const d=presetToDates(p);if(d)setEditDates(d);}};
 
   const applyChanges=async()=>{
     if(!gscMeta||!editDates)return;
@@ -1484,6 +1775,7 @@ function App(){
   };
 
   const renderAnalysis=()=>{
+    if(tab==='analytics') return <GA4Page/>;
     if(!cp){
       return(
         <div className="text-center py-20" style={{color:'var(--sub)'}}>
@@ -1491,41 +1783,40 @@ function App(){
         </div>
       );
     }
-    const content=()=>{switch(tab){
-      case 'overview': return <OverviewPage cp={cp} ck={ck} label={label}/>;
-      case 'pages':    return <PagesPage cp={cp}/>;
-      case 'keywords': return <KeywordsPage ck={ck}/>;
-      case 'tis':      return <TrafficScorePage cp={cp}/>;
-      case 'alerts':   return <AlertsPage cp={cp}/>;
-      case 'decay':    return <DecayPage cp={cp}/>;
-      case 'groups':   return <URLGroupsPage cp={cp}/>;
-      case 'ai':       return <AIAnalysisPage cp={cp} ck={ck}/>;
-      case 'forecast': return <ForecastPage trend={TREND}/>;
-      case 'history':  return <HistoryPage/>;
-      case 'reports':  return <ReportsPage cp={cp} ck={ck} label={label}/>;
+    switch(tab){
+      case 'overview':  return <OverviewPage cp={cp} ck={ck} label={label}/>;
+      case 'pages':     return <PagesPage cp={cp}/>;
+      case 'keywords':  return <KeywordsPage ck={ck}/>;
+      case 'tis':       return <TrafficScorePage cp={cp}/>;
+      case 'alerts':    return <AlertsPage cp={cp}/>;
+      case 'decay':     return <DecayPage cp={cp}/>;
+      case 'groups':    return <URLGroupsPage cp={cp}/>;
+      case 'ai':        return <AIAnalysisPage cp={cp} ck={ck}/>;
+      case 'forecast':  return <ForecastPage trend={TREND}/>;
+      case 'history':   return <HistoryPage/>;
+      case 'reports':   return <ReportsPage cp={cp} ck={ck} label={label}/>;
       default: return null;
-    }};
-    return <div key={tab} className="tab-slide">{content()}</div>;
+    }
   };
 
-  const totClicks=useMemo(()=>cp?cp.reduce((s,r)=>s+r.clicks,0):0,[cp]);
-  const prevTotClicks=useMemo(()=>cp?cp.reduce((s,r)=>s+(r.prevClicks||0),0):0,[cp]);
-  const clickPct=pctC(totClicks,prevTotClicks);
-
+  /* auth gate — after all hooks */
   if(!authed) return <LoginScreen onAuth={()=>setAuthed(true)}/>;
 
   return(
     <div className={dark?'dark':''} style={{minHeight:'100vh'}}>
+      {/* HEADER */}
       <header style={{position:'sticky',top:0,zIndex:50,background:'linear-gradient(90deg,#0f172a 0%,#1e293b 60%,#431407 100%)',boxShadow:'0 2px 20px rgba(0,0,0,.4)',borderBottom:'1px solid rgba(255,102,0,.25)'}}>
-        <div style={{maxWidth:1280,margin:'0 auto',padding:'0 12px',display:'flex',alignItems:'center',gap:10,height:52}}>
-          <span style={{background:'linear-gradient(135deg,#ff6600,#ff8533)',color:'#fff',padding:'3px 10px',borderRadius:6,fontSize:11,fontWeight:800,letterSpacing:'.06em',flexShrink:0}}>GSC PRO</span>
-          {cp&&<span className="mobile-hide" style={{fontSize:12,color:'rgba(255,255,255,.7)',whiteSpace:'nowrap',flexShrink:0}}>{fmt(totClicks)} clicks{clickPct!=null&&<span style={{color:clickPct>0?'#86efac':'#fca5a5',fontWeight:700}}> {sign(clickPct)}{clickPct.toFixed(1)}%</span>}</span>}
-          <div className="mobile-hide" style={{display:'flex',gap:3,padding:'3px',borderRadius:10,background:'rgba(0,0,0,.2)',flexShrink:0}}>
-            <button style={{padding:'4px 10px',borderRadius:7,fontSize:11,fontWeight:600,cursor:'pointer',border:'none',background:src==='ahrefs'?'#fff':'transparent',color:src==='ahrefs'?'#ff6600':'rgba(255,255,255,.8)'}} onClick={()=>{setSrc('ahrefs');setTab('overview');}}>📡 Ahrefs</button>
-            <button style={{padding:'4px 10px',borderRadius:7,fontSize:11,fontWeight:600,cursor:'pointer',border:'none',background:src==='gsc'?'#fff':'transparent',color:src==='gsc'?'#ff6600':'rgba(255,255,255,.8)'}} onClick={()=>{setSrc('gsc');setTab(gscData?'overview':'connect');}}>🔑 GSC</button>
+        <div style={{maxWidth:1280,margin:'0 auto',padding:'0 16px',display:'flex',alignItems:'center',gap:10,height:54}}>
+          <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+            <span style={{background:'#ff6600',color:'#fff',padding:'2px 8px',borderRadius:6,fontSize:11,fontWeight:700}}>GSC PRO</span>
+            {cp&&<span style={{fontSize:12,color:'rgba(255,255,255,.65)'}}>{fmt(totClicks)} clicks{clickPct!=null&&<span style={{color:clickPct>0?'#22c55e':'#ef4444'}}> {sign(clickPct)}{clickPct.toFixed(1)}%</span>}</span>}
+          </div>
+          <div style={{display:'flex',gap:4,padding:'3px',borderRadius:8,background:'rgba(255,255,255,.08)'}}>
+            <button className={`src-btn ${src==='ahrefs'?'src-on':'src-off'} text-xs`} onClick={()=>{setSrc('ahrefs');setTab('overview');}}>📡 Ahrefs</button>
+            <button className={`src-btn ${src==='gsc'?'src-on':'src-off'} text-xs`} onClick={()=>{setSrc('gsc');setTab(gscData?'overview':'connect');}}>🔑 GSC Live</button>
           </div>
           {gscMeta&&src==='gsc'&&editDates&&(
-            <div className="mobile-hide" style={{display:'flex',alignItems:'flex-end',gap:8,flex:1}}>
+            <div className="hdr-controls mobile-hide" style={{flex:1,display:'flex',alignItems:'flex-end',gap:8}}>
               {gscMeta.sites&&gscMeta.sites.length>1&&(
                 <div style={{display:'flex',flexDirection:'column',gap:2}}>
                   <span className="hdr-label">Property</span>
@@ -1536,7 +1827,7 @@ function App(){
               )}
               <div style={{display:'flex',flexDirection:'column',gap:2}}>
                 <span className="hdr-label">Date Range</span>
-                <select className="hdr-input" value={preset} onChange={e=>handlePresetChange(e.target.value)} style={{minWidth:220}}>
+                <select className="hdr-input" value={preset} onChange={e=>handlePresetChange(e.target.value)} style={{minWidth:200}}>
                   {PRESETS.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}
                 </select>
               </div>
@@ -1563,38 +1854,93 @@ function App(){
               <button className="apply-btn" onClick={applyChanges} disabled={refetching}>{refetching?'⟳ Loading':'Apply'}</button>
             </div>
           )}
-          <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
-            {alertCount>0&&<span className="mobile-hide" style={{fontSize:11,padding:'2px 7px',borderRadius:20,background:'rgba(0,0,0,.3)',color:'#fca5a5',fontWeight:700}}>{alertCount}</span>}
-            {refetching&&<span style={{color:'#fde68a',fontSize:13}}>⟳</span>}
-            <button onClick={()=>setDark(d=>!d)} style={{width:30,height:30,borderRadius:'50%',border:'1px solid rgba(255,255,255,.3)',background:'rgba(255,255,255,.15)',cursor:'pointer',fontSize:14}}>{dark?'☀️':'🌙'}</button>
-            <button className="hdr-hamburger" onClick={()=>setMobileMenuOpen(o=>!o)} style={{width:30,height:30,borderRadius:6,border:'1px solid rgba(255,255,255,.25)',background:'rgba(255,255,255,.1)',cursor:'pointer',color:'#fff',fontSize:15}}>{mobileMenuOpen?'✕':'☰'}</button>
+          <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:8}}>
+            {alertCount>0&&<span style={{fontSize:11,padding:'2px 8px',borderRadius:12,fontWeight:700,background:'#ef4444',color:'#fff'}}>{alertCount} critical</span>}
+            {decayCount>0&&<span style={{fontSize:11,padding:'2px 8px',borderRadius:12,fontWeight:700,background:'#f59e0b',color:'#fff'}}>{decayCount} decay</span>}
+            <button onClick={()=>setDark(d=>!d)} style={{width:32,height:32,borderRadius:'50%',border:'1px solid rgba(255,255,255,.15)',background:'rgba(255,255,255,.08)',cursor:'pointer',fontSize:15}}>
+              {dark?'☀️':'🌙'}
+            </button>
+            <button className="hdr-hamburger" style={{display:'none',width:32,height:32,borderRadius:6,border:'1px solid rgba(255,255,255,.15)',background:'rgba(255,255,255,.08)',cursor:'pointer',alignItems:'center',justifyContent:'center',fontSize:16}} onClick={()=>setMobileMenuOpen(m=>!m)}>☰</button>
           </div>
         </div>
-        {mobileMenuOpen&&(
-          <div style={{padding:'12px 16px',background:'rgba(15,23,42,.97)',borderTop:'1px solid rgba(255,255,255,.1)',display:'flex',flexDirection:'column',gap:10}}>
-            <div style={{display:'flex',gap:4}}>
-              <button style={{flex:1,padding:'8px',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer',border:'none',background:src==='ahrefs'?'#fff':'rgba(255,255,255,.1)',color:src==='ahrefs'?'#ff6600':'#fff'}} onClick={()=>{setSrc('ahrefs');setTab('overview');setMobileMenuOpen(false);}}>📡 Ahrefs</button>
-              <button style={{flex:1,padding:'8px',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer',border:'none',background:src==='gsc'?'#fff':'rgba(255,255,255,.1)',color:src==='gsc'?'#ff6600':'#fff'}} onClick={()=>{setSrc('gsc');setTab(gscData?'overview':'connect');setMobileMenuOpen(false);}}>🔑 GSC</button>
+        {/* TABS */}
+        {(src==='ahrefs'||gscData||tab==='analytics')&&(
+          <div style={{maxWidth:1280,margin:'0 auto',display:'flex',overflowX:'auto',scrollbarWidth:'none',padding:'0 8px'}}>
+            {ANALYSIS_TABS.map(t=>(
+              <button key={t.id} className={`text-xs px-3 py-2.5 whitespace-nowrap ${tab===t.id?'t-active':'t-inactive'}`} onClick={()=>setTab(t.id)}>
+                {t.lbl}
+                {t.id==='alerts'&&alertCount>0&&<span className="ml-1 text-xs font-bold" style={{color:'#ef4444'}}>{alertCount}</span>}
+                {t.id==='decay'&&decayCount>0&&<span className="ml-1 text-xs font-bold" style={{color:'#f59e0b'}}>{decayCount}</span>}
+              </button>
+            ))}
+          </div>
+        )}
+        {/* MOBILE MENU */}
+        {mobileMenuOpen&&gscMeta&&src==='gsc'&&editDates&&(
+          <div style={{background:'rgba(0,0,0,.88)',padding:'12px 16px',display:'flex',flexDirection:'column',gap:10}}>
+            {gscMeta.sites&&gscMeta.sites.length>1&&(
+              <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                <span className="hdr-label">Property</span>
+                <select className="hdr-input" value={editSite} onChange={e=>setEditSite(e.target.value)} style={{width:'100%'}}>
+                  {(gscMeta.sites||[]).map(s=><option key={s} value={s}>{s.replace(/^https?:\/\/(www\.)?/,'').replace(/\/$/,'')}</option>)}
+                </select>
+              </div>
+            )}
+            <div style={{display:'flex',flexDirection:'column',gap:4}}>
+              <span className="hdr-label">Date Range</span>
+              <select className="hdr-input" value={preset} onChange={e=>handlePresetChange(e.target.value)} style={{width:'100%'}}>
+                {PRESETS.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}
+              </select>
             </div>
-            {gscMeta&&src==='gsc'&&editDates&&(
-              <>
-                {gscMeta.sites&&gscMeta.sites.length>1&&(
-                  <div><span className="hdr-label" style={{display:'block',marginBottom:3}}>Property</span>
-                  <select className="hdr-input" value={editSite} onChange={e=>setEditSite(e.target.value)} style={{width:'100%'}}>
-                    {(gscMeta.sites||[]).map(s=><option key={s} value={s}>{s.replace(/^https?:\/\/(www\.)?/,'').replace(/\/$/,'')}</option>)}
-                  </select></div>
-                )}
-                <div><span className="hdr-label" style={{display:'block',marginBottom:3}}>Date Range</span>
-                  <select className="hdr-input" value={preset} onChange={e=>handlePresetChange(e.target.value)} style={{width:'100%'}}>
-                    {PRESETS.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}
-                  </select>
-                </div>
-                {preset==='custom'&&(
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-                    <div><span className="hdr-label" style={{display:'block',marginBottom:3}}>From</span><input className="hdr-input" type="date" value={editDates.s} onChange={e=>setEditDates(d=>({...d,s:e.target.value}))} style={{width:'100%'}}/></div>
-                    <div><span className="hdr-label" style={{display:'block',marginBottom:3}}>To</span><input className="hdr-input" type="date" value={editDates.e} onChange={e=>setEditDates(d=>({...d,e:e.target.value}))} style={{width:'100%'}}/></div>
-                    <div><span className="hdr-label" style={{display:'block',marginBottom:3}}>Prev From</span><input className="hdr-input" type="date" value={editDates.ps} onChange={e=>setEditDates(d=>({...d,ps:e.target.value}))} style={{width:'100%'}}/></div>
-                    <div><span className="hdr-label" style={{display:'block',marginBottom:3}}>Prev To</span><input className="hdr-input" type="date" value={editDates.pe} onChange={e=>setEditDates(d=>({...d,pe:e.target.value}))} style={{width:'100%'}}/></div>
+            {preset==='custom'&&(
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                <div><span className="hdr-label">Current Start</span><input className="hdr-input" type="date" value={editDates.s} onChange={e=>setEditDates(d=>({...d,s:e.target.value}))} style={{width:'100%',marginTop:4}}/></div>
+                <div><span className="hdr-label">Current End</span><input className="hdr-input" type="date" value={editDates.e} onChange={e=>setEditDates(d=>({...d,e:e.target.value}))} style={{width:'100%',marginTop:4}}/></div>
+                <div><span className="hdr-label">Compare Start</span><input className="hdr-input" type="date" value={editDates.ps} onChange={e=>setEditDates(d=>({...d,ps:e.target.value}))} style={{width:'100%',marginTop:4}}/></div>
+                <div><span className="hdr-label">Compare End</span><input className="hdr-input" type="date" value={editDates.pe} onChange={e=>setEditDates(d=>({...d,pe:e.target.value}))} style={{width:'100%',marginTop:4}}/></div>
+              </div>
+            )}
+            <button className="apply-btn" onClick={applyChanges} disabled={refetching} style={{width:'100%'}}>{refetching?'⟳ Loading':'Apply'}</button>
+          </div>
+        )}
+      </header>
+
+      {/* MAIN */}
+      <main style={{maxWidth:1280,margin:'0 auto',padding:'24px 16px'}}>
+        {src==='ahrefs'&&(
+          <>
+            {tab==='connect'||(!ahrefsData&&tab!=='connect')
+              ?<ImportPage onLoad={d=>{setAhrefsData(d);setTab('overview');}}/>
+              :renderAnalysis()
+            }
+          </>
+        )}
+        {src==='gsc'&&(
+          <>
+            {!gscData
+              ?<GscOAuthPage onLoad={d=>{if(d._meta){setGscMeta(d._meta);setEditDates({...d._meta.dates});setEditSite(d._meta.site);setPreset('1m');}setGscData(d);setTab('overview');}}/>
+              :renderAnalysis()
+            }
+          </>
+        )}
+      </main>
+
+      <footer style={{textAlign:'center',padding:'16px',fontSize:12,color:'var(--sub)'}}>
+        GSC Analytics Pro · BankBazaar.com · {label}
+      </footer>
+    </div>
+  );
+}
+
+try{
+  ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+}catch(e){
+  document.getElementById('root').innerHTML='<div style="padding:40px;font-family:sans-serif;color:#ef4444"><b>Error:</b> '+e.message+'</div>';
+}
+</script>
+</body>
+</html>
+tyle={{width:'100%'}}/></div>
                   </div>
                 )}
                 <button className="apply-btn" onClick={applyChanges} disabled={refetching} style={{width:'100%',padding:10}}>{refetching?'⟳ Loading…':'Apply & Refresh'}</button>
