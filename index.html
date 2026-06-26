@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow, nosnippet, noarchive">
+<meta name="googlebot" content="noindex, nofollow, nosnippet, noarchive">
+<meta name="bingbot" content="noindex, nofollow">
 <title>GSC Analytics Pro — BankBazaar.com</title>
 <link rel="icon" type="image/x-icon" href="https://www.bankbazaar.com/images/favicon.ico">
 <script src="https://cdn.tailwindcss.com"></script>
@@ -1898,32 +1901,142 @@ const ANALYSIS_TABS=[
 /* ─── APP ─── */
 const DASHBOARD_PASSWORD='bankbazaar@gsc2024';
 function LoginScreen({onAuth}){
+  const [email,setEmail]=useState('');
   const [pw,setPw]=useState('');
-  const [err,setErr]=useState('');
   const [show,setShow]=useState(false);
-  const submit=()=>{
-    if(pw===DASHBOARD_PASSWORD){onAuth();}
-    else{setErr('Incorrect password. Try again.');setPw('');}
+  const [captchaQ,setCaptchaQ]=useState(null);
+  const [captchaA,setCaptchaA]=useState('');
+  const [err,setErr]=useState('');
+  const [attempts,setAttempts]=useState(0);
+  const [locked,setLocked]=useState(false);
+  const [lockSecs,setLockSecs]=useState(0);
+  const hpRef=useRef(null);
+
+  const genCaptcha=()=>{
+    const r=()=>Math.floor(Math.random()*8)+2;
+    const type=Math.floor(Math.random()*3);
+    if(type===0){const a=r(),b=r();setCaptchaQ({q:a+' + '+b,a:a+b});}
+    else if(type===1){const a=r()+8,b=r();setCaptchaQ({q:a+' − '+b,a:a-b});}
+    else{const a=r(),b=Math.floor(Math.random()*4)+2;setCaptchaQ({q:a+' × '+b,a:a*b});}
+    setCaptchaA('');
   };
+
+  useEffect(()=>{genCaptcha();},[]);
+
+  useEffect(()=>{
+    if(!locked)return;
+    if(lockSecs<=0){setLocked(false);return;}
+    const t=setTimeout(()=>setLockSecs(n=>n-1),1000);
+    return()=>clearTimeout(t);
+  },[locked,lockSecs]);
+
+  const inputSt={width:'100%',padding:'10px 14px',borderRadius:8,border:'1px solid rgba(255,255,255,.15)',background:'rgba(255,255,255,.07)',color:'#fff',fontSize:14,outline:'none',boxSizing:'border-box'};
+  const labelSt={fontSize:10,fontWeight:700,color:'rgba(255,255,255,.45)',textTransform:'uppercase',letterSpacing:'.06em',display:'block',marginBottom:6};
+
+  const submit=()=>{
+    // Honeypot — bots fill hidden fields
+    if(hpRef.current&&hpRef.current.value)return;
+    if(locked){setErr('Account locked. Wait '+lockSecs+' seconds.');return;}
+    setErr('');
+
+    // 1. Email domain check
+    const em=email.trim().toLowerCase();
+    if(!em||!em.endsWith('@bankbazaar.com')){
+      setErr('Only @bankbazaar.com email addresses are permitted.');return;
+    }
+
+    // 2. CAPTCHA
+    if(!captchaQ||parseInt(captchaA,10)!==captchaQ.a){
+      setErr('Wrong CAPTCHA answer. Try the new question below.');
+      genCaptcha();return;
+    }
+
+    // 3. Password
+    if(pw!==DASHBOARD_PASSWORD){
+      const n=attempts+1;
+      setAttempts(n);
+      if(n>=3){setLocked(true);setLockSecs(30);setErr('3 failed attempts — locked for 30 seconds.');}
+      else{setErr('Incorrect password. '+(3-n)+' attempt'+(3-n===1?'':'s')+' remaining.');}
+      setPw('');genCaptcha();return;
+    }
+
+    onAuth();
+  };
+
   return(
     <div className="login-wrap">
-      <div className="login-card fi">
-        <div style={{textAlign:'center',marginBottom:20}}>
-          <span style={{background:'#ff6600',color:'#fff',padding:'4px 12px',borderRadius:8,fontSize:13,fontWeight:800,letterSpacing:'.04em'}}>GSC PRO</span>
-          <div style={{fontSize:18,fontWeight:700,marginTop:14}}>BankBazaar SEO Dashboard</div>
-          <div style={{fontSize:13,color:'rgba(255,255,255,.5)',marginTop:4}}>Enter password to continue</div>
+      <div className="login-card fi" style={{maxWidth:380}}>
+        {/* Header */}
+        <div style={{textAlign:'center',marginBottom:24}}>
+          <span style={{background:'#ff6600',color:'#fff',padding:'4px 14px',borderRadius:8,fontSize:13,fontWeight:800,letterSpacing:'.05em'}}>GSC PRO</span>
+          <div style={{fontSize:19,fontWeight:800,marginTop:14,color:'#fff'}}>BankBazaar SEO Dashboard</div>
+          <div style={{fontSize:12,color:'rgba(255,255,255,.4)',marginTop:5}}>🔐 Restricted — BankBazaar employees only</div>
         </div>
-        <div style={{position:'relative',marginBottom:12}}>
-          <input type={show?'text':'password'} value={pw} onChange={e=>setPw(e.target.value)}
+
+        {/* Honeypot — visually hidden */}
+        <input ref={hpRef} type="text" name="username" tabIndex={-1} aria-hidden="true"
+          style={{position:'absolute',left:'-9999px',width:1,height:1,opacity:0}} autoComplete="off"/>
+
+        {/* Email */}
+        <div style={{marginBottom:14}}>
+          <label style={labelSt}>Work Email</label>
+          <input type="email" value={email} onChange={e=>setEmail(e.target.value)}
             onKeyDown={e=>e.key==='Enter'&&submit()}
-            placeholder="Dashboard password" autoFocus
-            style={{width:'100%',padding:'10px 40px 10px 14px',borderRadius:8,border:'1px solid rgba(255,255,255,.15)',background:'rgba(255,255,255,.07)',color:'#fff',fontSize:14,outline:'none',boxSizing:'border-box'}}/>
-          <button onClick={()=>setShow(s=>!s)} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'rgba(255,255,255,.4)',fontSize:16}}>{show?'🙈':'👁'}</button>
+            placeholder="yourname@bankbazaar.com" autoFocus autoComplete="email"
+            style={inputSt}/>
         </div>
-        {err&&<div style={{fontSize:12,color:'#ef4444',marginBottom:10,textAlign:'center'}}>{err}</div>}
-        <button onClick={submit} style={{width:'100%',padding:'11px',borderRadius:8,background:'linear-gradient(135deg,#ff6600,#ff8533)',color:'#fff',border:'none',cursor:'pointer',fontWeight:700,fontSize:14}}>
-          Unlock Dashboard →
+
+        {/* Password */}
+        <div style={{marginBottom:14}}>
+          <label style={labelSt}>Password</label>
+          <div style={{position:'relative'}}>
+            <input type={show?'text':'password'} value={pw} onChange={e=>setPw(e.target.value)}
+              onKeyDown={e=>e.key==='Enter'&&submit()}
+              placeholder="Dashboard password" autoComplete="current-password"
+              style={{...inputSt,paddingRight:40}}/>
+            <button onClick={()=>setShow(s=>!s)}
+              style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'rgba(255,255,255,.4)',fontSize:15,lineHeight:1}}>
+              {show?'🙈':'👁'}
+            </button>
+          </div>
+        </div>
+
+        {/* CAPTCHA */}
+        {captchaQ&&(
+          <div style={{marginBottom:16,background:'rgba(255,102,0,.07)',border:'1px solid rgba(255,102,0,.2)',borderRadius:10,padding:'14px'}}>
+            <label style={labelSt}>🤖 Verify you're human</label>
+            <div style={{display:'flex',alignItems:'center',gap:10}}>
+              <div style={{flex:1,background:'rgba(0,0,0,.3)',borderRadius:8,padding:'10px 14px',textAlign:'center',fontFamily:'monospace',fontSize:20,fontWeight:800,color:'#ff8533',letterSpacing:'.08em'}}>
+                {captchaQ.q} = ?
+              </div>
+              <input type="number" value={captchaA} onChange={e=>setCaptchaA(e.target.value)}
+                onKeyDown={e=>e.key==='Enter'&&submit()}
+                placeholder="?"
+                style={{width:72,padding:'10px 8px',borderRadius:8,border:'1px solid rgba(255,255,255,.2)',background:'rgba(255,255,255,.07)',color:'#fff',fontSize:18,fontWeight:800,textAlign:'center',outline:'none'}}/>
+              <button onClick={genCaptcha} title="New question"
+                style={{background:'rgba(255,255,255,.08)',border:'1px solid rgba(255,255,255,.1)',borderRadius:8,width:36,height:36,cursor:'pointer',color:'rgba(255,255,255,.5)',fontSize:16,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                🔄
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Error */}
+        {err&&(
+          <div style={{fontSize:12,color:'#fca5a5',background:'rgba(239,68,68,.12)',border:'1px solid rgba(239,68,68,.25)',borderRadius:8,padding:'9px 12px',marginBottom:14,textAlign:'center'}}>
+            ⚠️ {err}
+          </div>
+        )}
+
+        {/* Submit */}
+        <button onClick={submit} disabled={locked}
+          style={{width:'100%',padding:'12px',borderRadius:8,background:locked?'rgba(255,255,255,.08)':'linear-gradient(135deg,#ff6600,#ff8533)',color:locked?'rgba(255,255,255,.3)':'#fff',border:'none',cursor:locked?'not-allowed':'pointer',fontWeight:700,fontSize:14,transition:'all .2s',letterSpacing:'.02em'}}>
+          {locked?'🔒 Locked ('+lockSecs+'s)':'Unlock Dashboard →'}
         </button>
+
+        <div style={{textAlign:'center',marginTop:14,fontSize:11,color:'rgba(255,255,255,.2)'}}>
+          Unauthorised access is strictly prohibited
+        </div>
       </div>
     </div>
   );
