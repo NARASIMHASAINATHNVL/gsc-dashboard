@@ -354,8 +354,8 @@ function OverviewPage({cp,ck,label}){
     const aPosP=cp.reduce((s,r)=>s+(r.prevPosition||r.position)*(r.prevImpressions||0),0)/Math.max(1,prv.i);
     return{cur,prv,aCtr,aCtrP,aPos,aPosP};
   },[cp]);
-  const top5g=useMemo(()=>[...cp].sort((a,b)=>(b.clicksDiff||0)-(a.clicksDiff||0)).slice(0,5),[cp]);
-  const top5l=useMemo(()=>[...cp].sort((a,b)=>(a.clicksDiff||0)-(b.clicksDiff||0)).slice(0,5),[cp]);
+  const top5g=useMemo(()=>[...cp].sort((a,b)=>(b.clicksDiff||0)-(a.clicksDiff||0)),[cp]);
+  const top5l=useMemo(()=>[...cp].sort((a,b)=>(a.clicksDiff||0)-(b.clicksDiff||0)),[cp]);
   return(
     <div className="space-y-5 fi">
       {label&&<div className="text-xs px-3 py-1.5 rounded-full inline-block" style={{background:'rgba(59,130,246,.1)',color:'#3b82f6'}}>{label}</div>}
@@ -367,24 +367,30 @@ function OverviewPage({cp,ck,label}){
       </div>
       <div className="grid md:grid-cols-2 gap-4">
         <div className="card rounded-xl p-5">
-          <h3 className="font-semibold mb-4 gain">🚀 Top Gaining Pages</h3>
-          {top5g.map((p,i)=>(
+          <h3 className="font-semibold mb-4 gain">🚀 Top Gaining Pages <span className="text-xs font-normal" style={{color:'var(--muted)'}}>{top5g.filter(p=>(p.clicksDiff||0)>0).length} pages</span></h3>
+          <div style={{maxHeight:'400px',overflowY:'auto'}}>
+          {top5g.filter(p=>(p.clicksDiff||0)>0).map((p,i)=>(
             <div key={i} className="flex items-center gap-2 py-2 border-b last:border-0" style={{borderColor:'var(--bdr)'}}>
+              <span className="text-xs font-bold" style={{color:'var(--muted)',minWidth:'22px'}}>{i+1}.</span>
               <div className="flex-1 text-sm truncate" title={p.key}>{shortURL(p.key)}</div>
               <span className="text-xs font-bold gain">+{fmt(p.clicksDiff)}</span>
               {p.clicksPct!=null&&<span className={`text-xs px-1.5 py-0.5 rounded ${bgC(p.clicksPct)}`}>{sign(p.clicksPct)}{p.clicksPct.toFixed(1)}%</span>}
             </div>
           ))}
+          </div>
         </div>
         <div className="card rounded-xl p-5">
-          <h3 className="font-semibold mb-4 loss">📉 Top Losing Pages</h3>
-          {top5l.map((p,i)=>(
+          <h3 className="font-semibold mb-4 loss">📉 Top Losing Pages <span className="text-xs font-normal" style={{color:'var(--muted)'}}>{top5l.filter(p=>(p.clicksDiff||0)<0).length} pages</span></h3>
+          <div style={{maxHeight:'400px',overflowY:'auto'}}>
+          {top5l.filter(p=>(p.clicksDiff||0)<0).map((p,i)=>(
             <div key={i} className="flex items-center gap-2 py-2 border-b last:border-0" style={{borderColor:'var(--bdr)'}}>
+              <span className="text-xs font-bold" style={{color:'var(--muted)',minWidth:'22px'}}>{i+1}.</span>
               <div className="flex-1 text-sm truncate" title={p.key}>{shortURL(p.key)}</div>
               <span className="text-xs font-bold loss">{fmt(p.clicksDiff)}</span>
               {p.clicksPct!=null&&<span className={`text-xs px-1.5 py-0.5 rounded ${bgC(p.clicksPct)}`}>{p.clicksPct.toFixed(1)}%</span>}
             </div>
           ))}
+          </div>
         </div>
       </div>
       <div className="card rounded-xl p-5">
