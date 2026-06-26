@@ -22,9 +22,9 @@ body{background:var(--bg,#f8fafc);color:var(--tx,#0f172a);font-family:-apple-sys
 .gain{color:#22c55e}.loss{color:#ef4444}.neutral{color:#94a3b8}
 .bg-gain{background:#dcfce7;color:#166534}.bg-loss{background:#fee2e2;color:#991b1b}.bg-neut{background:#f1f5f9;color:#475569}
 .dark .bg-gain{background:#14532d;color:#86efac}.dark .bg-loss{background:#7f1d1d;color:#fca5a5}.dark .bg-neut{background:#334155;color:#94a3b8}
-.t-active{border-bottom:2px solid #3b82f6;color:#3b82f6;font-weight:600}
-.t-inactive{border-bottom:2px solid transparent;color:var(--sub)}
-.t-inactive:hover{color:var(--tx)}
+.t-active{border-bottom:2px solid #ff6600;color:#fff;font-weight:700;background:rgba(255,102,0,.18);border-radius:6px 6px 0 0}
+.t-inactive{border-bottom:2px solid transparent;color:rgba(255,255,255,.48);transition:color .18s,background .18s;border-radius:6px 6px 0 0;cursor:pointer}
+.t-inactive:hover{color:#fff;background:rgba(255,255,255,.11);border-bottom:2px solid rgba(255,255,255,.3)}
 .src-btn{padding:6px 18px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;border:none}
 .src-on{background:#3b82f6;color:#fff}
 .src-off{background:var(--card);color:var(--sub);border:1px solid var(--bdr)}
@@ -1654,182 +1654,217 @@ function GA4Page(){
 
 /* ─── CTR GAPS PAGE ─── */
 function CTRGapsPage({cp}){
-  const [minImp,setMinImp]=useState(100);
+  const [minImp,setMinImp]=useState(500);
   const [maxCtr,setMaxCtr]=useState(5);
   const [maxPos,setMaxPos]=useState(20);
-  const [sortKey,setSortKey]=useState('impressions');
+  const [sortKey,setSortKey]=useState('oppClicks');
   const [sortDir,setSortDir]=useState(-1);
+  const [priFilter,setPriFilter]=useState('all');
 
-  // Expected CTR benchmarks by avg position
   const expCtr=(pos)=>{
-    if(pos<=1)return 28;
-    if(pos<=2)return 15;
-    if(pos<=3)return 11;
-    if(pos<=4)return 8;
-    if(pos<=5)return 7;
-    if(pos<=6)return 5.5;
-    if(pos<=7)return 4.5;
-    if(pos<=8)return 3.8;
-    if(pos<=9)return 3.2;
-    if(pos<=10)return 2.8;
-    if(pos<=15)return 1.5;
-    if(pos<=20)return 0.9;
+    if(pos<=1)return 28;if(pos<=2)return 15;if(pos<=3)return 11;
+    if(pos<=4)return 8;if(pos<=5)return 7;if(pos<=6)return 5.5;
+    if(pos<=7)return 4.5;if(pos<=8)return 3.8;if(pos<=9)return 3.2;
+    if(pos<=10)return 2.8;if(pos<=15)return 1.5;if(pos<=20)return 0.9;
     return 0.5;
   };
+
+  const getPri=(gap)=>gap>=15?{lbl:'Critical',color:'#ef4444',bg:'rgba(239,68,68,.13)'}
+    :gap>=8?{lbl:'High',color:'#f97316',bg:'rgba(249,115,22,.13)'}
+    :gap>=4?{lbl:'Medium',color:'#f59e0b',bg:'rgba(245,158,11,.13)'}
+    :{lbl:'Low',color:'#94a3b8',bg:'rgba(148,163,184,.1)'};
 
   const rows=useMemo(()=>{
     if(!cp)return[];
     return cp
-      .filter(r=>r.impressions>=minImp && (r.ctr*100)<=maxCtr && r.position<=maxPos)
+      .filter(r=>{
+        const ctrPct=r.ctr*100;
+        const exp=expCtr(r.position);
+        return r.impressions>=minImp&&ctrPct<=maxCtr&&r.position<=maxPos&&(exp-ctrPct)>0;
+      })
       .map(r=>{
         const ctrPct=+(r.ctr*100).toFixed(2);
         const exp=expCtr(r.position);
         const gap=+(exp-ctrPct).toFixed(2);
         const oppClicks=Math.round(r.impressions*(gap/100));
-        const prevCtr=r.prevCtr!=null?(r.prevCtr*100):null;
-        const ctrDelta=prevCtr!=null?(ctrPct-prevCtr).toFixed(2):null;
-        return{...r,ctrPct,exp,gap,oppClicks,prevCtr,ctrDelta};
+        const pri=getPri(gap);
+        return{...r,ctrPct,exp,gap,oppClicks,pri};
       })
-      .sort((a,b)=>sortDir*(a[sortKey]>b[sortKey]?1:-1));
-  },[cp,minImp,maxCtr,maxPos,sortKey,sortDir]);
+      .filter(r=>priFilter==='all'||r.pri.lbl.toLowerCase()===priFilter)
+      .sort((a,b)=>{
+        const av=a[sortKey],bv=b[sortKey];
+        if(av==null)return 1;if(bv==null)return-1;
+        return sortDir*(av>bv?1:av<bv?-1:0);
+      });
+  },[cp,minImp,maxCtr,maxPos,sortKey,sortDir,priFilter]);
 
   const toggleSort=(k)=>{if(sortKey===k)setSortDir(d=>-d);else{setSortKey(k);setSortDir(-1);}};
-  const sortIcon=(k)=>sortKey===k?(sortDir===-1?'▼':'▲'):'';
+  const sortIcon=(k)=>(<span style={{fontSize:9,opacity:sortKey===k?1:.35,marginLeft:3}}>{sortKey===k?(sortDir===-1?'▼':'▲'):'⇅'}</span>);
 
   const totalOppClicks=rows.reduce((s,r)=>s+r.oppClicks,0);
+  const totalImpr=rows.reduce((s,r)=>s+r.impressions,0);
+  const avgGap=rows.length?(rows.reduce((s,r)=>s+r.gap,0)/rows.length).toFixed(1):'0';
+  const priCounts={critical:0,high:0,medium:0,low:0};
+  rows.forEach(r=>{const k=r.pri.lbl.toLowerCase();if(k in priCounts)priCounts[k]++;});
 
-  const COLS=[
-    {key:'key',label:'Page URL',align:'left',w:320},
-    {key:'impressions',label:'Impressions',align:'right',w:100},
-    {key:'clicks',label:'Clicks',align:'right',w:80},
-    {key:'ctrPct',label:'CTR %',align:'right',w:75},
-    {key:'exp',label:'Exp. CTR %',align:'right',w:90},
-    {key:'gap',label:'CTR Gap',align:'right',w:80},
-    {key:'position',label:'Avg Pos',align:'right',w:80},
-    {key:'oppClicks',label:'Opp. Clicks',align:'right',w:90},
-  ];
+  const IMP_OPTS=[{v:100,l:'100'},{v:500,l:'500'},{v:1000,l:'1K'},{v:5000,l:'5K'},{v:10000,l:'10K'}];
+  const CTR_OPTS=[{v:1,l:'≤1%'},{v:2,l:'≤2%'},{v:3,l:'≤3%'},{v:5,l:'≤5%'},{v:10,l:'≤10%'}];
+  const POS_OPTS=[{v:10,l:'Top 10'},{v:20,l:'Top 20'},{v:30,l:'Top 30'},{v:50,l:'All'}];
+
+  const BtnGroup=({opts,val,onChange})=>(
+    <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+      {opts.map(o=>{
+        const on=val===o.v;
+        return(<button key={o.v} onClick={()=>onChange(o.v)} style={{padding:'4px 11px',borderRadius:20,border:'1px solid '+(on?'#3b82f6':'var(--bdr)'),background:on?'#3b82f6':'transparent',color:on?'#fff':'var(--sub)',fontSize:11,fontWeight:on?700:500,cursor:'pointer',transition:'all .15s'}}>{o.l}</button>);
+      })}
+    </div>
+  );
 
   return(
-    <div className="space-y-6 fi">
-      {/* Summary banner */}
-      <div style={{background:'linear-gradient(135deg,rgba(59,130,246,.12),rgba(139,92,246,.12))',border:'1px solid rgba(59,130,246,.25)',borderRadius:12,padding:'16px 20px',display:'flex',gap:24,flexWrap:'wrap',alignItems:'center'}}>
+    <div style={{display:'flex',flexDirection:'column',gap:20}}>
+
+      {/* Title + priority quick-filter */}
+      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:16,flexWrap:'wrap'}}>
         <div>
-          <div style={{fontSize:11,fontWeight:700,color:'var(--sub)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>CTR Gap Pages</div>
-          <div style={{fontSize:28,fontWeight:800,color:'#3b82f6'}}>{fmt(rows.length)}</div>
-          <div style={{fontSize:12,color:'var(--sub)'}}>pages with impression potential</div>
+          <h2 style={{fontSize:20,fontWeight:800,color:'var(--tx)',margin:0,lineHeight:1.2}}>👁 CTR Gap Analysis</h2>
+          <p style={{fontSize:13,color:'var(--sub)',margin:'5px 0 0'}}>Pages that rank and get impressions but users don't click — fix titles &amp; meta descriptions</p>
         </div>
-        <div>
-          <div style={{fontSize:11,fontWeight:700,color:'var(--sub)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>Opportunity Clicks</div>
-          <div style={{fontSize:28,fontWeight:800,color:'#22c55e'}}>+{fmt(totalOppClicks)}</div>
-          <div style={{fontSize:12,color:'var(--sub)'}}>clicks/period if CTR = expected</div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          {[
+            {k:'all',l:'All',c:'#3b82f6'},
+            {k:'critical',l:`🔴 Critical${priCounts.critical>0?' ('+priCounts.critical+')':''}`,c:'#ef4444'},
+            {k:'high',l:`🟠 High${priCounts.high>0?' ('+priCounts.high+')':''}`,c:'#f97316'},
+            {k:'medium',l:`🟡 Medium${priCounts.medium>0?' ('+priCounts.medium+')':''}`,c:'#f59e0b'},
+          ].map(p=>{
+            const on=priFilter===p.k;
+            return(<button key={p.k} onClick={()=>setPriFilter(p.k)} style={{padding:'5px 13px',borderRadius:20,border:'1px solid '+(on?p.c:'var(--bdr)'),background:on?p.c:'transparent',color:on?'#fff':p.c,fontSize:11,fontWeight:700,cursor:'pointer',transition:'all .15s'}}>{p.l}</button>);
+          })}
         </div>
-        <div style={{marginLeft:'auto',fontSize:12,color:'var(--sub)',maxWidth:240}}>
-          💡 These pages <strong>rank and get seen</strong> but users don't click. Fix title &amp; meta description to capture the traffic.
-        </div>
+      </div>
+
+      {/* KPI cards */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:12}}>
+        {[
+          {lbl:'Gap Pages',val:fmt(rows.length),color:'#3b82f6',icon:'📄',sub:'matching filters'},
+          {lbl:'Opp. Clicks',val:'+'+fmt(totalOppClicks),color:'#22c55e',icon:'🎯',sub:'if CTR = benchmark'},
+          {lbl:'Total Impressions',val:fmt(totalImpr),color:'#8b5cf6',icon:'👁',sub:'visible in search'},
+          {lbl:'Avg CTR Gap',val:avgGap+'%',color:'#f97316',icon:'📉',sub:'below benchmark'},
+        ].map(k=>(
+          <div key={k.lbl} className="card rounded-xl" style={{padding:'14px 16px',borderLeft:'3px solid '+k.color}}>
+            <div style={{fontSize:10,fontWeight:700,color:'var(--sub)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>{k.icon} {k.lbl}</div>
+            <div style={{fontSize:22,fontWeight:800,color:k.color,lineHeight:1.1}}>{k.val}</div>
+            <div style={{fontSize:11,color:'var(--sub)',marginTop:4}}>{k.sub}</div>
+          </div>
+        ))}
       </div>
 
       {/* Filters */}
-      <div className="card rounded-xl p-4" style={{display:'flex',gap:20,flexWrap:'wrap',alignItems:'center'}}>
-        <div style={{display:'flex',flexDirection:'column',gap:4}}>
-          <label style={{fontSize:11,fontWeight:600,color:'var(--sub)',textTransform:'uppercase',letterSpacing:'.04em'}}>Min Impressions</label>
-          <div style={{display:'flex',gap:8,alignItems:'center'}}>
-            <input type="range" min="50" max="5000" step="50" value={minImp} onChange={e=>setMinImp(+e.target.value)} style={{width:120}}/>
-            <span style={{fontSize:13,fontWeight:700,minWidth:40}}>{fmt(minImp)}</span>
-          </div>
+      <div className="card rounded-xl" style={{padding:'14px 18px',display:'flex',gap:20,flexWrap:'wrap',alignItems:'flex-start'}}>
+        <div style={{display:'flex',flexDirection:'column',gap:7}}>
+          <span style={{fontSize:10,fontWeight:700,color:'var(--sub)',textTransform:'uppercase',letterSpacing:'.05em'}}>Min Impressions</span>
+          <BtnGroup opts={IMP_OPTS} val={minImp} onChange={setMinImp}/>
         </div>
-        <div style={{display:'flex',flexDirection:'column',gap:4}}>
-          <label style={{fontSize:11,fontWeight:600,color:'var(--sub)',textTransform:'uppercase',letterSpacing:'.04em'}}>Max CTR %</label>
-          <div style={{display:'flex',gap:8,alignItems:'center'}}>
-            <input type="range" min="0.5" max="15" step="0.5" value={maxCtr} onChange={e=>setMaxCtr(+e.target.value)} style={{width:100}}/>
-            <span style={{fontSize:13,fontWeight:700,minWidth:40}}>{maxCtr}%</span>
-          </div>
+        <div style={{display:'flex',flexDirection:'column',gap:7}}>
+          <span style={{fontSize:10,fontWeight:700,color:'var(--sub)',textTransform:'uppercase',letterSpacing:'.05em'}}>Max CTR</span>
+          <BtnGroup opts={CTR_OPTS} val={maxCtr} onChange={setMaxCtr}/>
         </div>
-        <div style={{display:'flex',flexDirection:'column',gap:4}}>
-          <label style={{fontSize:11,fontWeight:600,color:'var(--sub)',textTransform:'uppercase',letterSpacing:'.04em'}}>Max Position</label>
-          <div style={{display:'flex',gap:8,alignItems:'center'}}>
-            <input type="range" min="5" max="50" step="1" value={maxPos} onChange={e=>setMaxPos(+e.target.value)} style={{width:100}}/>
-            <span style={{fontSize:13,fontWeight:700,minWidth:30}}>{maxPos}</span>
-          </div>
+        <div style={{display:'flex',flexDirection:'column',gap:7}}>
+          <span style={{fontSize:10,fontWeight:700,color:'var(--sub)',textTransform:'uppercase',letterSpacing:'.05em'}}>Position</span>
+          <BtnGroup opts={POS_OPTS} val={maxPos} onChange={setMaxPos}/>
         </div>
-        <div style={{marginLeft:'auto',fontSize:12,color:'var(--sub)'}}>{rows.length} pages · click column headers to sort</div>
+        <div style={{marginLeft:'auto',alignSelf:'center'}}>
+          <span style={{fontSize:12,fontWeight:700,color:'var(--tx)',padding:'6px 14px',background:'var(--bdr)',borderRadius:20}}>{rows.length} pages</span>
+        </div>
       </div>
 
-      {/* Position bucket summary */}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(100px,1fr))',gap:10}}>
+      {/* Position buckets */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
         {[
-          {label:'Top 3',filter:r=>r.position<=3,color:'#22c55e'},
-          {label:'Pos 4–10',filter:r=>r.position>3&&r.position<=10,color:'#3b82f6'},
-          {label:'Pos 11–20',filter:r=>r.position>10&&r.position<=20,color:'#f59e0b'},
+          {lbl:'🟢 Top 3',f:r=>r.position<=3,color:'#22c55e'},
+          {lbl:'🔵 Pos 4–10',f:r=>r.position>3&&r.position<=10,color:'#3b82f6'},
+          {lbl:'🟡 Pos 11–20',f:r=>r.position>10&&r.position<=20,color:'#f59e0b'},
         ].map(b=>{
-          const bRows=rows.filter(b.filter);
-          const bOpp=bRows.reduce((s,r)=>s+r.oppClicks,0);
+          const bR=rows.filter(b.f);
+          const bO=bR.reduce((s,r)=>s+r.oppClicks,0);
           return(
-            <div key={b.label} className="card rounded-xl p-4" style={{textAlign:'center',borderTop:'3px solid '+b.color}}>
-              <div style={{fontSize:11,color:'var(--sub)',fontWeight:600,marginBottom:4}}>{b.label}</div>
-              <div style={{fontSize:20,fontWeight:800,color:b.color}}>{bRows.length}</div>
-              <div style={{fontSize:11,color:'var(--sub)'}}>pages</div>
-              <div style={{fontSize:13,fontWeight:700,color:'var(--tx)',marginTop:4}}>+{fmt(bOpp)}</div>
-              <div style={{fontSize:10,color:'var(--sub)'}}>opp. clicks</div>
+            <div key={b.lbl} className="card rounded-xl" style={{padding:'14px 16px',borderTop:'3px solid '+b.color,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div>
+                <div style={{fontSize:11,fontWeight:700,color:'var(--sub)',marginBottom:4}}>{b.lbl}</div>
+                <div style={{fontSize:22,fontWeight:800,color:b.color}}>{bR.length}<span style={{fontSize:12,fontWeight:400,color:'var(--sub)',marginLeft:4}}>pages</span></div>
+              </div>
+              <div style={{textAlign:'right'}}>
+                <div style={{fontSize:10,color:'var(--sub)',textTransform:'uppercase',letterSpacing:'.04em'}}>Opp. clicks</div>
+                <div style={{fontSize:20,fontWeight:800,color:'#22c55e'}}>+{fmt(bO)}</div>
+              </div>
             </div>
           );
         })}
-        <div className="card rounded-xl p-4" style={{textAlign:'center',borderTop:'3px solid #8b5cf6'}}>
-          <div style={{fontSize:11,color:'var(--sub)',fontWeight:600,marginBottom:4}}>Avg CTR Gap</div>
-          <div style={{fontSize:20,fontWeight:800,color:'#8b5cf6'}}>
-            {rows.length?(rows.reduce((s,r)=>s+r.gap,0)/rows.length).toFixed(1):0}%
-          </div>
-          <div style={{fontSize:11,color:'var(--sub)'}}>below expected</div>
-        </div>
       </div>
 
       {/* Table */}
       {rows.length===0?(
-        <div className="card rounded-xl p-10 text-center" style={{color:'var(--sub)'}}>
-          No pages match the current filters. Try increasing Max CTR % or lowering Min Impressions.
+        <div className="card rounded-xl" style={{padding:'56px 24px',textAlign:'center',color:'var(--sub)'}}>
+          <div style={{fontSize:36,marginBottom:12}}>🔍</div>
+          <div style={{fontSize:15,fontWeight:700,color:'var(--tx)',marginBottom:6}}>No pages match</div>
+          <div style={{fontSize:13}}>Try increasing Max CTR or lowering Min Impressions</div>
         </div>
       ):(
         <div className="card rounded-xl overflow-hidden">
-          <div className="tbl-wrap">
+          <div style={{padding:'12px 18px',borderBottom:'1px solid var(--bdr)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+            <span style={{fontSize:13,fontWeight:700,color:'var(--tx)'}}>{rows.length} pages with CTR opportunity</span>
+            <span style={{fontSize:11,color:'var(--sub)'}}>Click headers to sort · CTR bar = actual vs benchmark</span>
+          </div>
+          <div style={{overflowX:'auto'}}>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
               <thead>
                 <tr style={{background:'var(--bdr)'}}>
-                  {COLS.map(c=>(
-                    <th key={c.key} onClick={()=>toggleSort(c.key)}
-                      style={{padding:'8px 10px',textAlign:c.align,color:'var(--sub)',fontWeight:700,fontSize:11,cursor:'pointer',whiteSpace:'nowrap',userSelect:'none',width:c.w}}>
-                      {c.label} {sortIcon(c.key)}
-                    </th>
-                  ))}
+                  <th style={{padding:'9px 14px',textAlign:'left',color:'var(--sub)',fontWeight:700,fontSize:10,whiteSpace:'nowrap',letterSpacing:'.04em',width:300}}>PAGE</th>
+                  <th onClick={()=>toggleSort('impressions')} style={{padding:'9px 12px',textAlign:'right',color:sortKey==='impressions'?'#3b82f6':'var(--sub)',fontWeight:700,fontSize:10,cursor:'pointer',userSelect:'none',whiteSpace:'nowrap',letterSpacing:'.04em'}}>IMPR{sortIcon('impressions')}</th>
+                  <th onClick={()=>toggleSort('clicks')} style={{padding:'9px 12px',textAlign:'right',color:sortKey==='clicks'?'#3b82f6':'var(--sub)',fontWeight:700,fontSize:10,cursor:'pointer',userSelect:'none',whiteSpace:'nowrap',letterSpacing:'.04em'}}>CLICKS{sortIcon('clicks')}</th>
+                  <th onClick={()=>toggleSort('ctrPct')} style={{padding:'9px 14px',textAlign:'center',color:sortKey==='ctrPct'?'#3b82f6':'var(--sub)',fontWeight:700,fontSize:10,cursor:'pointer',userSelect:'none',whiteSpace:'nowrap',letterSpacing:'.04em',minWidth:190}}>CTR vs EXPECTED{sortIcon('ctrPct')}</th>
+                  <th onClick={()=>toggleSort('gap')} style={{padding:'9px 12px',textAlign:'right',color:sortKey==='gap'?'#3b82f6':'var(--sub)',fontWeight:700,fontSize:10,cursor:'pointer',userSelect:'none',whiteSpace:'nowrap',letterSpacing:'.04em'}}>GAP{sortIcon('gap')}</th>
+                  <th onClick={()=>toggleSort('position')} style={{padding:'9px 12px',textAlign:'right',color:sortKey==='position'?'#3b82f6':'var(--sub)',fontWeight:700,fontSize:10,cursor:'pointer',userSelect:'none',whiteSpace:'nowrap',letterSpacing:'.04em'}}>POS{sortIcon('position')}</th>
+                  <th onClick={()=>toggleSort('oppClicks')} style={{padding:'9px 12px',textAlign:'right',color:sortKey==='oppClicks'?'#3b82f6':'var(--sub)',fontWeight:700,fontSize:10,cursor:'pointer',userSelect:'none',whiteSpace:'nowrap',letterSpacing:'.04em'}}>OPP CLICKS{sortIcon('oppClicks')}</th>
+                  <th style={{padding:'9px 12px',textAlign:'center',color:'var(--sub)',fontWeight:700,fontSize:10,whiteSpace:'nowrap',letterSpacing:'.04em'}}>PRIORITY</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r,i)=>{
-                  const ctrBarW=Math.min(r.ctrPct/r.exp*100,100);
-                  const posColor=r.position<=3?'#22c55e':r.position<=10?'#3b82f6':r.position<=20?'#f59e0b':'#94a3b8';
-                  const gapColor=r.gap>5?'#ef4444':r.gap>2?'#f59e0b':'#94a3b8';
+                  const posColor=r.position<=3?'#22c55e':r.position<=10?'#3b82f6':'#f59e0b';
+                  const barPct=Math.min(r.ctrPct/Math.max(r.exp,0.1)*100,100);
                   return(
-                    <tr key={r.key} className="row-hover" style={{borderBottom:'1px solid var(--bdr)'}}>
-                      <td style={{padding:'8px 10px',maxWidth:320,width:320}}>
-                        <a href={r.key} target="_blank" rel="noreferrer"
-                          style={{color:'var(--tx)',textDecoration:'none',fontSize:11,display:'block',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:310}}
-                          title={r.key}>{r.key.replace(/^https?:\/\/(www\.)?bankbazaar\.com/,'')}</a>
+                    <tr key={r.key} className="row-hover" style={{borderBottom:'1px solid var(--bdr)',background:i%2===0?'transparent':'rgba(0,0,0,.018)'}}>
+                      <td style={{padding:'10px 14px',maxWidth:300}}>
+                        <a href={r.key} target="_blank" rel="noreferrer" title={r.key}
+                          style={{color:'var(--tx)',textDecoration:'none',fontSize:11,display:'block',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:288}}>
+                          {r.key.replace(/^https?:\/\/(www\.)?bankbazaar\.com/,'')}
+                        </a>
                       </td>
-                      <td style={{textAlign:'right',padding:'8px 10px',fontWeight:700,color:'#3b82f6'}}>{fmt(r.impressions)}</td>
-                      <td style={{textAlign:'right',padding:'8px 10px'}}>{fmt(r.clicks)}</td>
-                      <td style={{textAlign:'right',padding:'8px 10px'}}>
-                        <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2}}>
-                          <span style={{fontWeight:700}}>{r.ctrPct}%</span>
-                          <div style={{width:50,height:3,background:'var(--bdr)',borderRadius:2}}>
-                            <div style={{width:ctrBarW+'%',height:'100%',background:ctrBarW>60?'#22c55e':ctrBarW>30?'#f59e0b':'#ef4444',borderRadius:2}}></div>
+                      <td style={{textAlign:'right',padding:'10px 12px',fontWeight:700,color:'#3b82f6'}}>{fmt(r.impressions)}</td>
+                      <td style={{textAlign:'right',padding:'10px 12px',color:'var(--tx)'}}>{fmt(r.clicks)}</td>
+                      <td style={{padding:'10px 14px',minWidth:190}}>
+                        <div style={{display:'flex',alignItems:'center',gap:7}}>
+                          <span style={{fontSize:11,fontWeight:800,color:'#ef4444',minWidth:38,textAlign:'right'}}>{r.ctrPct}%</span>
+                          <div style={{flex:1,position:'relative',height:7,background:'rgba(34,197,94,.15)',borderRadius:4}}>
+                            <div style={{position:'absolute',inset:'0 auto 0 0',width:barPct+'%',background:'linear-gradient(90deg,#ef4444,#f97316)',borderRadius:4,transition:'width .3s'}}></div>
                           </div>
+                          <span style={{fontSize:11,color:'#22c55e',fontWeight:600,minWidth:34}}>{r.exp}%</span>
+                        </div>
+                        <div style={{display:'flex',justifyContent:'space-between',marginTop:2,fontSize:9,color:'var(--sub)',paddingLeft:46}}>
+                          <span>actual</span><span style={{color:'#22c55e'}}>benchmark</span>
                         </div>
                       </td>
-                      <td style={{textAlign:'right',padding:'8px 10px',color:'var(--sub)'}}>{r.exp}%</td>
-                      <td style={{textAlign:'right',padding:'8px 10px',color:gapColor,fontWeight:700}}>-{r.gap}%</td>
-                      <td style={{textAlign:'right',padding:'8px 10px'}}>
-                        <span style={{color:posColor,fontWeight:700}}>{r.position.toFixed(1)}</span>
+                      <td style={{textAlign:'right',padding:'10px 12px',color:'#ef4444',fontWeight:800}}>-{r.gap}%</td>
+                      <td style={{textAlign:'right',padding:'10px 12px'}}>
+                        <span style={{color:posColor,fontWeight:700,fontSize:13}}>{r.position.toFixed(1)}</span>
                       </td>
-                      <td style={{textAlign:'right',padding:'8px 10px'}}>
-                        <span style={{color:'#22c55e',fontWeight:700}}>+{fmt(r.oppClicks)}</span>
+                      <td style={{textAlign:'right',padding:'10px 12px'}}>
+                        <span style={{color:'#22c55e',fontWeight:800,fontSize:13}}>+{fmt(r.oppClicks)}</span>
+                      </td>
+                      <td style={{textAlign:'center',padding:'10px 12px'}}>
+                        <span style={{display:'inline-block',padding:'3px 9px',borderRadius:20,background:r.pri.bg,color:r.pri.color,fontWeight:700,fontSize:10,letterSpacing:'.03em',whiteSpace:'nowrap'}}>
+                          {r.pri.lbl}
+                        </span>
                       </td>
                     </tr>
                   );
