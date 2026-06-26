@@ -58,6 +58,11 @@ input,select,textarea{background:var(--card);color:var(--tx);border:1px solid va
 .connecting-ring{animation:pulse-ring 1.8s ease-in-out infinite}
 .btn-glow{animation:glow-pulse 2s ease-in-out infinite}
 .shimmer-card{background:linear-gradient(90deg,var(--card) 25%,rgba(59,130,246,.06) 50%,var(--card) 75%);background-size:200% 100%;animation:shimmer 2s infinite}
+.sticky-col{position:sticky;left:0;z-index:2;background:var(--card)}
+.sticky-col-head{position:sticky;left:0;z-index:3;background:var(--card)}
+.dark .sticky-col,.dark .sticky-col-head{background:#1e293b}
+.back-to-top{position:fixed;bottom:28px;right:24px;width:40px;height:40px;border-radius:50%;background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:18px;z-index:999;box-shadow:0 4px 14px rgba(59,130,246,.4);transition:opacity .25s,transform .25s;display:flex;align-items:center;justify-content:center}
+.back-to-top:hover{background:#2563eb;transform:translateY(-2px)}
 </style>
 </head>
 <body>
@@ -338,12 +343,12 @@ function STable({cols,rows,defaultSort,defaultDir='desc',perPageOpts=[10,25,50,1
           </select>
         </div>
       </div>
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" style={{borderRadius:8,border:'1px solid var(--bdr)'}}>
         <table className="w-full text-sm">
           <thead>
             <tr style={{borderBottom:'1px solid var(--bdr)'}}>
-              {cols.map(c=>(
-                <th key={c.key} className="text-left py-2 px-2 cursor-pointer select-none text-xs font-semibold uppercase tracking-wide" style={{color:'var(--sub)'}} onClick={()=>sort(c.key)}>
+              {cols.map((c,ci)=>(
+                <th key={c.key} className={`text-left py-2 px-3 cursor-pointer select-none text-xs font-semibold uppercase tracking-wide${ci===0?' sticky-col-head':''}`} style={{color:'var(--sub)',whiteSpace:'nowrap'}} onClick={()=>sort(c.key)}>
                   {c.label}{sc===c.key?(sd==='asc'?' ↑':' ↓'):' ↕'}
                 </th>
               ))}
@@ -352,7 +357,7 @@ function STable({cols,rows,defaultSort,defaultDir='desc',perPageOpts=[10,25,50,1
           <tbody>
             {slice.map((r,i)=>(
               <tr key={i} className="row-hover" style={{borderBottom:'1px solid var(--bdr)'}}>
-                {cols.map(c=><td key={c.key} className="py-2 px-2">{c.render?c.render(r[c.key],r):r[c.key]}</td>)}
+                {cols.map((c,ci)=><td key={c.key} className={`py-2 px-3${ci===0?' sticky-col':''}`}>{c.render?c.render(r[c.key],r):r[c.key]}</td>)}
               </tr>
             ))}
           </tbody>
@@ -371,6 +376,22 @@ function STable({cols,rows,defaultSort,defaultDir='desc',perPageOpts=[10,25,50,1
 /* ─── OVERVIEW PAGE ─── */
 /* ─── COPY TOAST ─── */
 function CopyToast({msg}){ return msg?<div className="copy-toast">{msg}</div>:null; }
+
+/* ─── BACK TO TOP ─── */
+function BackToTop(){
+  const [visible,setVisible]=useState(false);
+  useEffect(()=>{
+    const onScroll=()=>setVisible(window.scrollY>300);
+    window.addEventListener('scroll',onScroll,{passive:true});
+    return()=>window.removeEventListener('scroll',onScroll);
+  },[]);
+  if(!visible) return null;
+  return(
+    <button className="back-to-top" onClick={()=>window.scrollTo({top:0,behavior:'smooth'})} title="Back to top">
+      ↑
+    </button>
+  );
+}
 
 /* ─── CATEGORIES for filter ─── */
 const ALL_CATS=['All','Credit Cards','Personal Loan','Home Loan','Vehicle Loan','Insurance','Gold Rate','Fuel Price','Fixed Deposit','Savings Account','IFSC','Tax / ITR','Calculators','Credit Score','PAN Card','Investments','Education Loan','Business Loan','Other'];
@@ -1324,6 +1345,7 @@ function App(){
       <footer className="text-center py-4 text-xs" style={{color:'var(--sub)'}}>
         GSC Analytics Pro · BankBazaar.com · {label}
       </footer>
+      <BackToTop/>
     </div>
   );
 }
