@@ -1017,29 +1017,55 @@ function GscOAuthPage({onLoad}){
           </div>
           <button className="btn-glow w-full py-2.5 rounded-xl text-sm font-semibold" style={{background:'#3b82f6',color:'#fff'}} onClick={connect} disabled={step==='connecting'}>
             {step==='connecting'
-              ? <span style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8}}><span className="connecting-ring" style={{display:'inline-block',width:14,height:14,border:'2px solid rgba(255,255,255,.4)',borderTopColor:'#fff',borderRadius:'50%',animation:'spin-slow .8s linear infinite'}}></span>Connecting...</span>
+              ? <span style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid rgba(255,255,255,.4)',borderTopColor:'#fff',borderRadius:'50%',animation:'spin-slow .8s linear infinite'}}></span>Waiting for Google login popup...</span>
               : '🔗 Connect to Google Search Console'}
           </button>
+          {step==='connecting'&&<button className="w-full py-2 rounded-xl text-sm" style={{background:'var(--bdr)',color:'var(--tx)',border:'none',cursor:'pointer'}} onClick={connect}>↩ Popup blocked? Click here to retry</button>}
           {status&&<div className="text-sm rounded-lg px-3 py-2" style={{background:'rgba(0,0,0,.04)'}}>{status}</div>}
         </div>
       </div>
     </div>
   );
 
+  const [siteSearch,setSiteSearch]=useState('');
+
   return(
     <div className="max-w-lg mx-auto space-y-4 fi">
       <div className="card rounded-xl p-6">
         <div className="flex items-center gap-3 mb-4 p-3 rounded-xl" style={{background:'rgba(34,197,94,.08)',border:'1px solid rgba(34,197,94,.2)'}}>
           <lottie-player src="https://assets4.lottiefiles.com/packages/lf20_lk80fpsm.json" background="transparent" speed="1" style={{width:'36px',height:'36px'}} count={1} autoplay></lottie-player>
-          <span className="text-green-600 font-bold text-sm">Connected to Google Search Console</span>
-          <button className="text-xs text-blue-500 ml-auto" onClick={()=>{setStep('setup');setToken('');setSites([]);}}>Disconnect</button>
+          <span className="text-green-600 font-bold text-sm">Connected · {sites.length} properties</span>
+          <button className="text-xs text-blue-500 ml-auto" onClick={()=>{setStep('setup');setToken('');setSites([]);setSite('');}}>Disconnect</button>
         </div>
         <div className="space-y-4">
           <div>
-            <label style={labelStyle}>GSC Property</label>
-            <select className="w-full rounded-lg px-3 py-2 text-sm" value={site} onChange={e=>setSite(e.target.value)}>
-              {sites.map(s=><option key={s} value={s}>{s}</option>)}
-            </select>
+            <label style={labelStyle}>Select GSC Property</label>
+            {sites.length>5&&(
+              <input
+                className="w-full rounded-lg px-3 py-2 text-sm mb-2"
+                placeholder="Search properties..."
+                value={siteSearch}
+                onChange={e=>setSiteSearch(e.target.value)}
+                style={{border:'1px solid var(--bdr)',background:'var(--card)',color:'var(--tx)'}}
+              />
+            )}
+            <div style={{maxHeight:'220px',overflowY:'auto',border:'1px solid var(--bdr)',borderRadius:10}}>
+              {sites.filter(s=>!siteSearch||s.toLowerCase().includes(siteSearch.toLowerCase())).map(s=>(
+                <div key={s} onClick={()=>setSite(s)}
+                  style={{
+                    padding:'10px 14px',cursor:'pointer',
+                    background:site===s?'rgba(59,130,246,.1)':'transparent',
+                    borderLeft:site===s?'3px solid #3b82f6':'3px solid transparent',
+                    borderBottom:'1px solid var(--bdr)',
+                    transition:'all .12s',display:'flex',alignItems:'center',gap:8
+                  }}>
+                  <span style={{fontSize:14}}>{s.startsWith('sc-domain:')?'🌐':'📄'}</span>
+                  <span className="text-sm" style={{color:site===s?'#3b82f6':'var(--tx)',fontWeight:site===s?600:400,wordBreak:'break-all'}}>{s}</span>
+                  {site===s&&<span className="ml-auto text-xs font-bold" style={{color:'#3b82f6'}}>✓</span>}
+                </div>
+              ))}
+            </div>
+            {site&&<div className="text-xs mt-1.5 px-1" style={{color:'var(--sub)'}}>Selected: <strong style={{color:'var(--tx)'}}>{site}</strong></div>}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
