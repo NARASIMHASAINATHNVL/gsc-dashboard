@@ -828,8 +828,8 @@ function ReportsPage({cp,ck,label}){
 }
 /* ─── GSC OAUTH SOURCE ─── */
 function GscOAuthPage({onLoad}){
-  const [step,setStep]=useState('setup'); // setup | connecting | sites | loading | done
-  const [clientId,setClientId]=useState('');
+  const [step,setStep]=useState('connecting'); // setup | connecting | sites | loading | done
+  const [clientId,setClientId]=useState('464969597167-iplinfr9l74uat3sjp21oam0vb73okoj.apps.googleusercontent.com');
   const [token,setToken]=useState('');
   const [sites,setSites]=useState([]);
   const [site,setSite]=useState('');
@@ -837,6 +837,7 @@ function GscOAuthPage({onLoad}){
   const [dates,setDates]=useState({s:'2026-05-28',e:'2026-06-25',ps:'2026-04-30',pe:'2026-05-27'});
   const [rowLimit,setRowLimit]=useState(500);
   const tokenRef=useRef(null);
+  useEffect(()=>{ const t=setTimeout(()=>connect(),800); return ()=>clearTimeout(t); },[]);
 
   const connect=()=>{
     if(!clientId.trim()){setStatus('Please enter your Google OAuth Client ID.');return;}
