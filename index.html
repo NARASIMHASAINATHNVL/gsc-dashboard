@@ -867,7 +867,7 @@ function GscOAuthPage({onLoad}){
 
   const fetchGSC=async(siteUrl,start,end,dim,limit)=>{
     const r=await fetch(
-      'https://searchconsole.googleapis.com/v1/sites/'+encodeURIComponent(siteUrl)+'/searchAnalytics/query',
+      'https://www.googleapis.com/webmasters/v3/sites/'+encodeURIComponent(siteUrl)+'/searchAnalytics/query',
       {method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
        body:JSON.stringify({startDate:start,endDate:end,dimensions:[dim==='pages'?'page':'query'],rowLimit:limit,dataState:'final'})}
     );
