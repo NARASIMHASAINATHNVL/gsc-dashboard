@@ -69,6 +69,27 @@ input,select,textarea{background:var(--card);color:var(--tx);border:1px solid va
 .count-anim{animation:countUp .5s ease both}
 .pos-badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700}
 .heatmap-cell{border-radius:4px;padding:2px 6px;display:inline-block;font-weight:600}
+/* Login screen */
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0f172a 0%,#1e293b 60%,#431407 100%)}
+.login-card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:36px 32px;width:100%;max-width:360px;backdrop-filter:blur(12px)}
+/* Responsive header controls */
+.hdr-controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.hdr-input{padding:5px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.1);color:#fff;font-size:11px;outline:none}
+.hdr-input option{background:#1e293b;color:#fff}
+.hdr-label{font-size:10px;font-weight:600;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.05em}
+.apply-btn{padding:6px 14px;border-radius:8px;background:#ff6600;color:#fff;border:none;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap}
+.apply-btn:disabled{opacity:.5;cursor:not-allowed}
+/* Responsive tables */
+.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+/* Mobile responsiveness */
+@media(max-width:640px){
+  .hdr-controls{display:none}
+  .hdr-controls.open{display:flex;flex-direction:column;align-items:stretch;position:absolute;top:100%;left:0;right:0;background:linear-gradient(180deg,#1e293b,#0f172a);padding:12px 16px;z-index:100;gap:8px}
+  .hdr-hamburger{display:flex!important}
+  .metric-grid{grid-template-columns:1fr 1fr!important}
+  .mobile-hide{display:none!important}
+}
+@media(min-width:641px){.hdr-hamburger{display:none!important}}
 </style>
 </head>
 <body>
@@ -1094,7 +1115,7 @@ function GscOAuthPage({onLoad}){
       ]);
       setStatus('✅ Loaded '+pC.length+' pages, '+qC.length+' keywords');
       setStep('done');
-      onLoad({cp:computeComp(pC,pP),ck:computeComp(qC,qP),label:site+' · '+dates.s+' vs '+dates.ps});
+      onLoad({cp:computeComp(pC,pP),ck:computeComp(qC,qP),label:site+' · '+dates.s+' vs '+dates.ps,_meta:{token,site,sites,dates}});
     }catch(e){setStatus('❌ Error: '+e.message);setStep('sites');}
   };
 
@@ -1322,12 +1343,60 @@ const ANALYSIS_TABS=[
   {id:'reports',lbl:'📋 Reports'},
 ];
 
+const DASHBOARD_PASSWORD='bankbazaar@gsc2024';
+
+function LoginScreen({onAuth}){
+  const [pw,setPw]=useState('');
+  const [err,setErr]=useState('');
+  const [show,setShow]=useState(false);
+  const submit=()=>{
+    if(pw===DASHBOARD_PASSWORD){onAuth();}
+    else{setErr('Incorrect password. Try again.');setPw('');}
+  };
+  return(
+    <div className="login-wrap">
+      <div className="login-card fi">
+        <div style={{textAlign:'center',marginBottom:24}}>
+          <div style={{fontSize:28,marginBottom:8}}>📊</div>
+          <div style={{fontSize:18,fontWeight:800,color:'#fff',marginBottom:4}}>GSC Analytics Pro</div>
+          <div style={{fontSize:13,color:'rgba(255,255,255,.5)'}}>BankBazaar.com · SEO Dashboard</div>
+        </div>
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:11,fontWeight:600,color:'rgba(255,255,255,.55)',display:'block',marginBottom:6,textTransform:'uppercase',letterSpacing:'.05em'}}>Password</label>
+          <div style={{position:'relative'}}>
+            <input
+              type={show?'text':'password'}
+              value={pw}
+              onChange={e=>{setPw(e.target.value);setErr('');}}
+              onKeyDown={e=>e.key==='Enter'&&submit()}
+              placeholder="Enter dashboard password"
+              style={{width:'100%',padding:'10px 40px 10px 12px',borderRadius:8,border:'1px solid rgba(255,255,255,.2)',background:'rgba(255,255,255,.08)',color:'#fff',fontSize:14,outline:'none',boxSizing:'border-box'}}
+            />
+            <button onClick={()=>setShow(s=>!s)} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',color:'rgba(255,255,255,.5)',cursor:'pointer',fontSize:16}}>{show?'🙈':'👁'}</button>
+          </div>
+        </div>
+        {err&&<div style={{color:'#fca5a5',fontSize:12,marginBottom:10,textAlign:'center'}}>{err}</div>}
+        <button onClick={submit} style={{width:'100%',padding:'11px',borderRadius:8,background:'linear-gradient(135deg,#ff6600,#ff8533)',color:'#fff',border:'none',cursor:'pointer',fontWeight:700,fontSize:14,letterSpacing:'.02em'}}>
+          Unlock Dashboard →
+        </button>
+        <div style={{textAlign:'center',marginTop:14,fontSize:11,color:'rgba(255,255,255,.3)'}}>Contact your SEO team lead for access</div>
+      </div>
+    </div>
+  );
+}
+
 function App(){
+  const [authed,setAuthed]=useState(false);
   const [src,setSrc]=useState('ahrefs'); // 'ahrefs' | 'gsc'
   const [tab,setTab]=useState('overview');
   const [dark,setDark]=useState(false);
   const [ahrefsData,setAhrefsData]=useState(null); // loaded from CSV or pre-baked
   const [gscData,setGscData]=useState(null);
+  const [gscMeta,setGscMeta]=useState(null); // {token,site,sites,dates}
+  const [editDates,setEditDates]=useState(null);
+  const [editSite,setEditSite]=useState('');
+  const [refetching,setRefetching]=useState(false);
+  const [mobileMenuOpen,setMobileMenuOpen]=useState(false);
 
   // Pre-bake Ahrefs data on mount
   useEffect(()=>{
@@ -1355,6 +1424,29 @@ function App(){
   // Alert count for badge
   const alertCount=useMemo(()=>cp?generateAlerts(cp).filter(a=>a.sev==='c').length:0,[cp]);
   const decayCount=useMemo(()=>cp?detectDecay(cp).length:0,[cp]);
+
+  const applyChanges=async()=>{
+    if(!gscMeta||!editDates)return;
+    const{token,sites}=gscMeta;
+    const d=editDates;
+    const activeSite=editSite||gscMeta.site;
+    if(!d.s||!d.e||!d.ps||!d.pe)return;
+    setRefetching(true);setMobileMenuOpen(false);
+    const fetchG=async(start,end,dim)=>{
+      const r=await fetch('https://www.googleapis.com/webmasters/v3/sites/'+encodeURIComponent(activeSite)+'/searchAnalytics/query',
+        {method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+         body:JSON.stringify({startDate:start,endDate:end,dimensions:[dim==='pages'?'page':'query'],rowLimit:500,dataState:'final'})});
+      const j=await r.json();
+      if(j.error)throw new Error(j.error.message);
+      return(j.rows||[]).map(row=>({key:row.keys[0],clicks:row.clicks,impressions:row.impressions,ctr:row.ctr,position:row.position}));
+    };
+    try{
+      const[pC,pP,qC,qP]=await Promise.all([fetchG(d.s,d.e,'pages'),fetchG(d.ps,d.pe,'pages'),fetchG(d.s,d.e,'queries'),fetchG(d.ps,d.pe,'queries')]);
+      setGscMeta(m=>({...m,site:activeSite,dates:d}));
+      setGscData({cp:computeComp(pC,pP),ck:computeComp(qC,qP),label:activeSite+' · '+d.s+' vs '+d.ps,_meta:{token,site:activeSite,sites,dates:d}});
+    }catch(e){alert('GSC error: '+e.message);}
+    setRefetching(false);
+  };
 
   const renderAnalysis=()=>{
     if(!cp){
@@ -1385,28 +1477,115 @@ function App(){
   const prevTotClicks=useMemo(()=>cp?cp.reduce((s,r)=>s+(r.prevClicks||0),0):0,[cp]);
   const clickPct=pctC(totClicks,prevTotClicks);
 
+  if(!authed) return <LoginScreen onAuth={()=>setAuthed(true)}/>;
+
   return(
     <div className={dark?'dark':''} style={{minHeight:'100vh'}}>
       {/* HEADER */}
-      <header className="border-b px-4 py-0" style={{position:'sticky',top:0,zIndex:50,background:'linear-gradient(90deg,#0f172a 0%,#1e293b 60%,#431407 100%)',boxShadow:'0 2px 20px rgba(0,0,0,.4)',borderBottom:'1px solid rgba(255,102,0,.25)'}}>
-        <div className="max-w-screen-xl mx-auto flex items-center gap-4 h-14">
-          <div className="font-bold text-base flex items-center gap-2">
-            <span style={{background:'linear-gradient(135deg,#ff6600,#ff8533)',color:'#fff',padding:'3px 10px',borderRadius:6,fontSize:11,fontWeight:800,letterSpacing:'.06em',boxShadow:'0 2px 8px rgba(255,102,0,.4)'}}>GSC PRO</span>
-            {cp&&<span className="text-sm" style={{color:'rgba(255,255,255,.75)'}}>{fmt(totClicks)} clicks{clickPct!=null&&<span style={{color:clickPct>0?'#86efac':'#fca5a5',fontWeight:700}}> {sign(clickPct)}{clickPct.toFixed(1)}%</span>}</span>}
-          </div>
+      <header style={{position:'sticky',top:0,zIndex:50,background:'linear-gradient(90deg,#0f172a 0%,#1e293b 60%,#431407 100%)',boxShadow:'0 2px 20px rgba(0,0,0,.4)',borderBottom:'1px solid rgba(255,102,0,.25)'}}>
+        <div className="px-3" style={{maxWidth:1280,margin:'0 auto',display:'flex',alignItems:'center',gap:10,height:52}}>
+          {/* Brand */}
+          <span style={{background:'linear-gradient(135deg,#ff6600,#ff8533)',color:'#fff',padding:'3px 10px',borderRadius:6,fontSize:11,fontWeight:800,letterSpacing:'.06em',boxShadow:'0 2px 8px rgba(255,102,0,.4)',whiteSpace:'nowrap'}}>GSC PRO</span>
+          {cp&&<span className="mobile-hide" style={{fontSize:12,color:'rgba(255,255,255,.7)',whiteSpace:'nowrap'}}>{fmt(totClicks)} clicks{clickPct!=null&&<span style={{color:clickPct>0?'#86efac':'#fca5a5',fontWeight:700}}> {sign(clickPct)}{clickPct.toFixed(1)}%</span>}</span>}
+
           {/* SOURCE SWITCHER */}
-          <div className="flex gap-1.5 ml-2 p-1 rounded-xl" style={{background:'rgba(0,0,0,.15)'}}>
-            <button className={`src-btn text-xs`} style={{background:src==='ahrefs'?'#fff':'transparent',color:src==='ahrefs'?'#ff6600':'rgba(255,255,255,.8)',border:'none'}} onClick={()=>{setSrc('ahrefs');setTab('overview');}}>📡 Ahrefs</button>
-            <button className={`src-btn text-xs`} style={{background:src==='gsc'?'#fff':'transparent',color:src==='gsc'?'#ff6600':'rgba(255,255,255,.8)',border:'none'}} onClick={()=>{setSrc('gsc');setTab(gscData?'overview':'connect');}}>🔑 GSC Live</button>
+          <div className="mobile-hide" style={{display:'flex',gap:4,padding:'3px 4px',borderRadius:10,background:'rgba(0,0,0,.2)',flexShrink:0}}>
+            <button style={{padding:'4px 12px',borderRadius:8,fontSize:11,fontWeight:600,cursor:'pointer',border:'none',background:src==='ahrefs'?'#fff':'transparent',color:src==='ahrefs'?'#ff6600':'rgba(255,255,255,.8)'}} onClick={()=>{setSrc('ahrefs');setTab('overview');}}>📡 Ahrefs</button>
+            <button style={{padding:'4px 12px',borderRadius:8,fontSize:11,fontWeight:600,cursor:'pointer',border:'none',background:src==='gsc'?'#fff':'transparent',color:src==='gsc'?'#ff6600':'rgba(255,255,255,.8)'}} onClick={()=>{setSrc('gsc');setTab(gscData?'overview':'connect');}}>🔑 GSC Live</button>
           </div>
-          <div className="ml-auto flex items-center gap-2">
-            {alertCount>0&&<span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{background:'rgba(0,0,0,.3)',color:'#fca5a5'}}>{alertCount} critical</span>}
-            {decayCount>0&&<span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{background:'rgba(0,0,0,.3)',color:'#fde68a'}}>{decayCount} decay</span>}
-            <button onClick={()=>setDark(d=>!d)} style={{width:32,height:32,borderRadius:'50%',border:'1px solid rgba(255,255,255,.3)',background:'rgba(255,255,255,.15)',cursor:'pointer',fontSize:16}}>
+
+          {/* GSC CONTROLS — property + dates + apply (desktop inline) */}
+          {gscMeta&&src==='gsc'&&editDates&&(
+            <div className="hdr-controls mobile-hide" style={{display:'flex',alignItems:'center',gap:6,flex:1}}>
+              {/* Property selector */}
+              {gscMeta.sites&&gscMeta.sites.length>1&&(
+                <div style={{display:'flex',flexDirection:'column',gap:2}}>
+                  <span className="hdr-label">Property</span>
+                  <select className="hdr-input" value={editSite} onChange={e=>setEditSite(e.target.value)} style={{maxWidth:200}}>
+                    {(gscMeta.sites||[]).map(s=><option key={s} value={s}>{s.replace(/^(https?:\/\/)?(www\.)?/,'').replace(/\/$/,'')}</option>)}
+                  </select>
+                </div>
+              )}
+              {/* Date range */}
+              <div style={{display:'flex',flexDirection:'column',gap:2}}>
+                <span className="hdr-label">Current Period</span>
+                <div style={{display:'flex',gap:4,alignItems:'center'}}>
+                  <input className="hdr-input" type="date" value={editDates.s} onChange={e=>setEditDates(d=>({...d,s:e.target.value}))}/>
+                  <span style={{color:'rgba(255,255,255,.4)',fontSize:11}}>→</span>
+                  <input className="hdr-input" type="date" value={editDates.e} onChange={e=>setEditDates(d=>({...d,e:e.target.value}))}/>
+                </div>
+              </div>
+              <div style={{display:'flex',flexDirection:'column',gap:2}}>
+                <span className="hdr-label">Compare Period</span>
+                <div style={{display:'flex',gap:4,alignItems:'center'}}>
+                  <input className="hdr-input" type="date" value={editDates.ps} onChange={e=>setEditDates(d=>({...d,ps:e.target.value}))}/>
+                  <span style={{color:'rgba(255,255,255,.4)',fontSize:11}}>→</span>
+                  <input className="hdr-input" type="date" value={editDates.pe} onChange={e=>setEditDates(d=>({...d,pe:e.target.value}))}/>
+                </div>
+              </div>
+              <button className="apply-btn" onClick={applyChanges} disabled={refetching} style={{marginTop:14}}>
+                {refetching?'⟳ Loading…':'Apply'}
+              </button>
+            </div>
+          )}
+
+          {/* RIGHT: alerts + dark mode + hamburger */}
+          <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
+            {alertCount>0&&<span className="mobile-hide" style={{fontSize:11,padding:'2px 8px',borderRadius:20,background:'rgba(0,0,0,.3)',color:'#fca5a5',fontWeight:700}}>{alertCount} crit</span>}
+            {refetching&&<span style={{color:'#fde68a',fontSize:12,fontWeight:600}}>⟳</span>}
+            <button onClick={()=>setDark(d=>!d)} style={{width:30,height:30,borderRadius:'50%',border:'1px solid rgba(255,255,255,.3)',background:'rgba(255,255,255,.15)',cursor:'pointer',fontSize:14}}>
               {dark?'☀️':'🌙'}
+            </button>
+            {/* Hamburger for mobile */}
+            <button className="hdr-hamburger" onClick={()=>setMobileMenuOpen(o=>!o)} style={{width:30,height:30,borderRadius:6,border:'1px solid rgba(255,255,255,.25)',background:'rgba(255,255,255,.1)',cursor:'pointer',color:'#fff',fontSize:16,display:'none'}}>
+              {mobileMenuOpen?'✕':'☰'}
             </button>
           </div>
         </div>
+
+        {/* MOBILE MENU — source switcher + GSC controls */}
+        {mobileMenuOpen&&(
+          <div style={{padding:'12px 16px',background:'rgba(15,23,42,.97)',borderTop:'1px solid rgba(255,255,255,.1)',display:'flex',flexDirection:'column',gap:10}}>
+            <div style={{display:'flex',gap:4}}>
+              <button style={{flex:1,padding:'8px',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer',border:'none',background:src==='ahrefs'?'#fff':'rgba(255,255,255,.1)',color:src==='ahrefs'?'#ff6600':'#fff'}} onClick={()=>{setSrc('ahrefs');setTab('overview');setMobileMenuOpen(false);}}>📡 Ahrefs</button>
+              <button style={{flex:1,padding:'8px',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer',border:'none',background:src==='gsc'?'#fff':'rgba(255,255,255,.1)',color:src==='gsc'?'#ff6600':'#fff'}} onClick={()=>{setSrc('gsc');setTab(gscData?'overview':'connect');setMobileMenuOpen(false);}}>🔑 GSC Live</button>
+            </div>
+            {gscMeta&&src==='gsc'&&editDates&&(<>
+              {gscMeta.sites&&gscMeta.sites.length>1&&(
+                <div>
+                  <span className="hdr-label" style={{display:'block',marginBottom:4}}>Property</span>
+                  <select className="hdr-input" value={editSite} onChange={e=>setEditSite(e.target.value)} style={{width:'100%'}}>
+                    {(gscMeta.sites||[]).map(s=><option key={s} value={s}>{s.replace(/^(https?:\/\/)?(www\.)?/,'').replace(/\/$/,'')}</option>)}
+                  </select>
+                </div>
+              )}
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                <div><span className="hdr-label" style={{display:'block',marginBottom:3}}>From</span><input className="hdr-input" type="date" value={editDates.s} onChange={e=>setEditDates(d=>({...d,s:e.target.value}))} style={{width:'100%'}}/></div>
+                <div><span className="hdr-label" style={{display:'block',marginBottom:3}}>To</span><input className="hdr-input" type="date" value={editDates.e} onChange={e=>setEditDates(d=>({...d,e:e.target.value}))} style={{width:'100%'}}/></div>
+                <div><span className="hdr-label" style={{display:'block',marginBottom:3}}>Prev From</span><input className="hdr-input" type="date" value={editDates.ps} onChange={e=>setEditDates(d=>({...d,ps:e.target.value}))} style={{width:'100%'}}/></div>
+                <div><span className="hdr-label" style={{display:'block',marginBottom:3}}>Prev To</span><input className="hdr-input" type="date" value={editDates.pe} onChange={e=>setEditDates(d=>({...d,pe:e.target.value}))} style={{width:'100%'}}/></div>
+              </div>
+              <button className="apply-btn" onClick={applyChanges} disabled={refetching} style={{width:'100%',padding:10}}>
+                {refetching?'⟳ Loading…':'Apply & Refresh'}
+              </button>
+            </>)}
+          </div>
+        )}
+
+        {/* ANALYSIS TABS */}
+        {(src==='ahrefs'||gscData)&&(
+          <div style={{maxWidth:1280,margin:'0 auto',overflowX:'auto',scrollbarWidth:'none',display:'flex',background:'rgba(0,0,0,.2)'}}>
+            {ANALYSIS_TABS.map(t=>(
+              <button key={t.id} onClick={()=>setTab(t.id)}
+                style={{padding:'8px 12px',fontSize:11,fontWeight:tab===t.id?700:400,color:tab===t.id?'#fff':'rgba(255,255,255,.6)',borderBottom:tab===t.id?'2px solid #fff':'2px solid transparent',background:'transparent',border:'none',borderBottom:tab===t.id?'2px solid #fff':'2px solid transparent',cursor:'pointer',whiteSpace:'nowrap',transition:'all .15s'}}>
+                {t.lbl}
+                {t.id==='alerts'&&alertCount>0&&<span style={{marginLeft:4,color:'#fca5a5',fontWeight:700,fontSize:10}}>{alertCount}</span>}
+                {t.id==='decay'&&decayCount>0&&<span style={{marginLeft:4,color:'#fde68a',fontWeight:700,fontSize:10}}>{decayCount}</span>}
+              </button>
+            ))}
+          </div>
+        )}
+      </header>
         {/* ANALYSIS TABS (shown when data loaded OR src=ahrefs) */}
         {(src==='ahrefs'||gscData)&&(
           <div className="max-w-screen-xl mx-auto flex overflow-x-auto gap-0 pb-0" style={{scrollbarWidth:'none',background:'rgba(0,0,0,.2)'}}>
@@ -1424,7 +1603,7 @@ function App(){
       </header>
 
       {/* MAIN */}
-      <main className="max-w-screen-xl mx-auto px-4 py-6">
+      <main style={{maxWidth:1280,margin:'0 auto',padding:'16px 12px'}}>
         {src==='ahrefs'&&(
           <>
             {tab==='connect'||(!ahrefsData&&tab!=='connect')
@@ -1436,7 +1615,7 @@ function App(){
         {src==='gsc'&&(
           <>
             {!gscData
-              ?<GscOAuthPage onLoad={d=>{setGscData(d);setTab('overview');}}/>
+              ?<GscOAuthPage onLoad={d=>{if(d._meta){setGscMeta(d._meta);setEditDates({...d._meta.dates});setEditSite(d._meta.site);}setGscData(d);setTab('overview');}}/>
               :renderAnalysis()
             }
           </>
