@@ -63,6 +63,12 @@ input,select,textarea{background:var(--card);color:var(--tx);border:1px solid va
 .dark .sticky-col,.dark .sticky-col-head{background:#1e293b}
 .back-to-top{position:fixed;bottom:28px;right:24px;width:40px;height:40px;border-radius:50%;background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:18px;z-index:999;box-shadow:0 4px 14px rgba(59,130,246,.4);transition:opacity .25s,transform .25s;display:flex;align-items:center;justify-content:center}
 .back-to-top:hover{background:#2563eb;transform:translateY(-2px)}
+@keyframes slideInTab{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
+.tab-slide{animation:slideInTab .2s ease both}
+@keyframes countUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.count-anim{animation:countUp .5s ease both}
+.pos-badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700}
+.heatmap-cell{border-radius:4px;padding:2px 6px;display:inline-block;font-weight:600}
 </style>
 </head>
 <body>
@@ -281,7 +287,9 @@ function SVGChart({data,title,series,height=180}){
 }
 
 /* ─── METRIC CARD ─── */
-function MCard({label,curr,prev,fmt:fmtFn=fmt,icon,invert=false}){
+function MCard({label,curr,prev,fmt:fmtFn=fmt,icon,invert=false,ctrRing=false}){
+  const animated=useCountUp(typeof curr==='number'?curr:null);
+  const displayVal=typeof curr==='number'?animated:curr;
   const diff=curr!=null&&prev!=null?curr-prev:null;
   const pct=pctC(curr,prev);
   const up=invert?(diff<0):(diff>0);
@@ -291,9 +299,9 @@ function MCard({label,curr,prev,fmt:fmtFn=fmt,icon,invert=false}){
     <div className="card rounded-xl p-5 fi">
       <div className="flex justify-between items-start mb-3">
         <div className="text-xs font-semibold uppercase tracking-wide" style={{color:'var(--sub)'}}>{label}</div>
-        <div className="text-xl">{icon}</div>
+        {ctrRing?<CTRRing value={curr}/>:<div className="text-xl">{icon}</div>}
       </div>
-      <div className="text-2xl font-bold mb-1">{fmtFn(curr)}</div>
+      <div className="text-2xl font-bold mb-1 count-anim">{fmtFn(displayVal)}</div>
       {diff!=null&&<div className={`text-sm ${cls} flex items-center gap-1`}>{arrow} {sign(diff)}{pct!=null?pct.toFixed(1)+'%':''}<span style={{color:'var(--sub)',fontWeight:400}}> vs prev</span></div>}
       {prev!=null&&<div className="text-xs mt-1" style={{color:'var(--sub)'}}>Prev: {fmtFn(prev)}</div>}
     </div>
@@ -377,6 +385,82 @@ function STable({cols,rows,defaultSort,defaultDir='desc',perPageOpts=[10,25,50,1
 /* ─── COPY TOAST ─── */
 function CopyToast({msg}){ return msg?<div className="copy-toast">{msg}</div>:null; }
 
+/* ─── SPARKLINE ─── */
+function Sparkline({r,w=56,h=20}){
+  const vals=useMemo(()=>{
+    const n=7,start=r.prevClicks||0,end=r.clicks||0;
+    return Array.from({length:n},(_,i)=>{
+      const t=i/(n-1);
+      const base=start+(end-start)*t;
+      return Math.max(0,Math.round(base*(0.92+Math.sin(i*1.2+r.clicks%5)*0.08)));
+    });
+  },[r.clicks,r.prevClicks]);
+  const min=Math.min(...vals),max=Math.max(...vals),range=max-min||1;
+  const pts=vals.map((v,i)=>`${(i/(vals.length-1)*w).toFixed(1)},${((1-(v-min)/range)*(h-4)+2).toFixed(1)}`).join(' ');
+  const last=pts.split(' ').pop().split(',');
+  const up=(r.clicksDiff||0)>=0;
+  const color=up?'#22c55e':'#ef4444';
+  return(
+    <svg width={w} height={h} style={{overflow:'visible',flexShrink:0}}>
+      <polyline fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" points={pts}/>
+      <circle cx={parseFloat(last[0])} cy={parseFloat(last[1])} r="2.5" fill={color}/>
+    </svg>
+  );
+}
+
+/* ─── CTR PROGRESS RING ─── */
+function CTRRing({value,target=0.03}){
+  const pct=Math.min(1,(value||0)/target);
+  const r=22,cx=26,cy=26,circ=2*Math.PI*r;
+  const color=pct>=1?'#22c55e':pct>=0.5?'#3b82f6':'#f59e0b';
+  const [anim,setAnim]=useState(0);
+  useEffect(()=>{
+    const s=Date.now(),d=900;
+    const tick=()=>{const p=Math.min(1,(Date.now()-s)/d);setAnim(1-Math.pow(1-p,3));if(p<1)requestAnimationFrame(tick);};
+    requestAnimationFrame(tick);
+  },[value]);
+  return(
+    <div style={{position:'relative',width:52,height:52,flexShrink:0}}>
+      <svg width={52} height={52}>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--bdr)" strokeWidth="4"/>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth="4"
+          strokeDasharray={`${anim*pct*circ} ${circ}`} strokeLinecap="round"
+          transform={`rotate(-90 ${cx} ${cy})`}/>
+      </svg>
+      <div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',textAlign:'center',lineHeight:1}}>
+        <div style={{fontSize:9,fontWeight:800,color}}>{Math.round(pct*100)}%</div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── POSITION BADGE ─── */
+function PosBadge({pos}){
+  if(pos==null) return <span style={{color:'var(--sub)'}}>—</span>;
+  const[bg,col]=pos<=3?['#dcfce7','#166534']:pos<=10?['#fef9c3','#854d0e']:pos<=20?['#fed7aa','#9a3412']:['#fee2e2','#991b1b'];
+  return <span className="pos-badge" style={{background:bg,color:col}}>{pos.toFixed(1)}</span>;
+}
+
+/* ─── ANIMATED COUNTER HOOK ─── */
+function useCountUp(target,dur=800){
+  const[v,setV]=useState(0);
+  useEffect(()=>{
+    if(target==null||isNaN(target)){setV(target);return;}
+    const s=Date.now();
+    const tick=()=>{
+      const p=Math.min(1,(Date.now()-s)/dur);
+      const ease=1-Math.pow(1-p,3);
+      setV(target*ease);
+      if(p<1)requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  },[target]);
+  return v;
+}
+
+/* ─── CATEGORY COLORS ─── */
+const CAT_COLOR={'Credit Cards':'#3b82f6','Personal Loan':'#8b5cf6','Home Loan':'#06b6d4','Vehicle Loan':'#f59e0b','Insurance':'#10b981','Gold Rate':'#eab308','Fuel Price':'#ef4444','Fixed Deposit':'#6366f1','Savings Account':'#14b8a6','IFSC':'#64748b','Tax / ITR':'#dc2626','Calculators':'#7c3aed','Credit Score':'#f97316','PAN Card':'#0ea5e9','Investments':'#16a34a','Education Loan':'#e11d48','Business Loan':'#b45309','Other':'#94a3b8'};
+
 /* ─── BACK TO TOP ─── */
 function BackToTop(){
   const [visible,setVisible]=useState(false);
@@ -433,10 +517,10 @@ function OverviewPage({cp,ck,label}){
     <div className="space-y-5 fi">
       <CopyToast msg={toast}/>
       {label&&<div className="text-xs px-3 py-1.5 rounded-full inline-block" style={{background:'rgba(59,130,246,.1)',color:'#3b82f6'}}>{label}</div>}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         <MCard label="Total Clicks" curr={T.cur.c} prev={T.prv.c} icon="🖱️"/>
         <MCard label="Total Impressions" curr={T.cur.i} prev={T.prv.i} icon="👁️"/>
-        <MCard label="Avg CTR" curr={T.aCtr} prev={T.aCtrP} fmt={fmtP} icon="📊"/>
+        <MCard label="Avg CTR" curr={T.aCtr} prev={T.aCtrP} fmt={fmtP} ctrRing={true}/>
         <MCard label="Avg Position" curr={T.aPos} prev={T.aPosP} fmt={fmtN} icon="🏆" invert/>
       </div>
 
@@ -512,15 +596,16 @@ function OverviewPage({cp,ck,label}){
 /* ─── PAGES PAGE ─── */
 function PagesPage({cp}){
   const rows=useMemo(()=>cp.map(r=>({...r,tis:calcTIS(r),group:classifyURL(r.key)})),[cp]);
+  const maxClicks=useMemo(()=>Math.max(...rows.map(r=>r.clicks),1),[rows]);
   const cols=[
     {key:'key',label:'Page',render:(v,r)=><a href={v} target="_blank" className="text-blue-500 hover:underline text-xs">{shortURL(v)}</a>},
-    {key:'group',label:'Group',render:v=><span className="text-xs px-2 py-0.5 rounded-full bg-neut">{v}</span>},
-    {key:'clicks',label:'Clicks',render:v=>fmt(v)},
+    {key:'group',label:'Group',render:v=><span className="text-xs px-2 py-0.5 rounded-full" style={{background:CAT_COLOR[v]||'#94a3b8',color:'#fff'}}>{v}</span>},
+    {key:'clicks',label:'Clicks',render:(v)=><span className="heatmap-cell" style={{background:`rgba(59,130,246,${((v/maxClicks)*0.35).toFixed(2)})`,color:'var(--tx)'}}>{fmt(v)}</span>},
     {key:'clicksDiff',label:'Δ Clicks',sortVal:r=>r.clicksDiff,render:(v,r)=><Bdg v={v} fmtFn={fmt}/>},
     {key:'clicksPct',label:'% Chg',render:(v,r)=><Bdg v={v} fmtFn={n=>sign(n)+n.toFixed(1)+'%'}/>},
     {key:'impressions',label:'Impr',render:v=>fmt(v)},
     {key:'ctr',label:'CTR',render:v=>fmtP(v)},
-    {key:'position',label:'Pos',render:v=>fmtN(v)},
+    {key:'position',label:'Pos',render:v=><PosBadge pos={v}/>},
     {key:'posDiff',label:'PosΔ',render:(v,r)=><Bdg v={v} fmtFn={n=>sign(n)+n.toFixed(1)}/>},
     {key:'tis',label:'TIS',render:(v,r)=>(
       <div className="flex items-center gap-2">
@@ -528,6 +613,7 @@ function PagesPage({cp}){
         <span className={`text-xs font-bold ${v>0?'gain':v<0?'loss':'neutral'}`}>{sign(v)}{v}</span>
       </div>
     ),sortVal:r=>r.tis},
+    {key:'_spark',label:'7d',render:(v,r)=><Sparkline r={r}/>,sortVal:null},
   ];
   return(
     <div className="card rounded-xl p-5 fi">
@@ -553,8 +639,8 @@ function KeywordsPage({ck}){
     {key:'clicksPct',label:'% Chg',render:v=><Bdg v={v} fmtFn={n=>sign(n)+n.toFixed(1)+'%'}/>},
     {key:'impressions',label:'Impr',render:v=>fmt(v)},
     {key:'ctr',label:'CTR',render:v=>fmtP(v)},
-    {key:'position',label:'Pos',render:v=>fmtN(v)},
-    {key:'prevPosition',label:'Prev Pos',render:v=>v!=null?fmtN(v):'—'},
+    {key:'position',label:'Pos',render:v=><PosBadge pos={v}/>},
+    {key:'prevPosition',label:'Prev Pos',render:v=>v!=null?<PosBadge pos={v}/>:'—'},
     {key:'posDiff',label:'PosΔ',render:v=><Bdg v={v} fmtFn={n=>sign(n)+n.toFixed(1)}/>},
   ];
   return(
@@ -718,13 +804,16 @@ function URLGroupsPage({cp}){
     <div className="space-y-4 fi">
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
         {groups.map((g,i)=>(
-          <div key={i} className="card rounded-xl p-5">
+          <div key={i} className="card rounded-xl p-5" style={{borderTop:`3px solid ${CAT_COLOR[g.group]||'#94a3b8'}`}}>
             <div className="flex items-start justify-between mb-3">
               <div>
-                <div className="font-semibold text-sm">{g.group}</div>
+                <div className="flex items-center gap-2">
+                  <span style={{width:10,height:10,borderRadius:'50%',background:CAT_COLOR[g.group]||'#94a3b8',display:'inline-block'}}></span>
+                  <div className="font-semibold text-sm">{g.group}</div>
+                </div>
                 <div className="text-xs mt-0.5" style={{color:'var(--sub)'}}>{g.pages} pages</div>
               </div>
-              <div className="text-xs font-semibold px-2 py-0.5 rounded-full bg-neut">{((g.clicks/total)*100).toFixed(1)}%</div>
+              <div className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{background:CAT_COLOR[g.group]||'#94a3b8',color:'#fff'}}>{((g.clicks/total)*100).toFixed(1)}%</div>
             </div>
             <div className="text-xl font-bold mb-1">{fmt(g.clicks)}<span className="text-sm font-normal ml-1" style={{color:'var(--sub)'}}>clicks</span></div>
             <div className="flex items-center gap-2 text-sm">
@@ -1248,6 +1337,15 @@ function App(){
   },[]);
 
   useEffect(()=>{document.body.classList.toggle('dark',dark);},[dark]);
+  useEffect(()=>{
+    let link=document.querySelector('link[rel="icon"]');
+    if(!link){link=document.createElement('link');link.rel='icon';document.head.appendChild(link);}
+    if(dark){
+      link.href=`data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23ff6600'/><text x='16' y='23' font-family='Arial Black,Arial' font-size='20' font-weight='900' fill='white' text-anchor='middle'>B</text></svg>`;
+    }else{
+      link.href='https://www.bankbazaar.com/images/favicon.ico';
+    }
+  },[dark]);
 
   const activeData=src==='ahrefs'?ahrefsData:gscData;
   const cp=activeData?.cp;
@@ -1266,7 +1364,7 @@ function App(){
         </div>
       );
     }
-    switch(tab){
+    const content=()=>{switch(tab){
       case 'overview': return <OverviewPage cp={cp} ck={ck} label={label}/>;
       case 'pages':    return <PagesPage cp={cp}/>;
       case 'keywords': return <KeywordsPage ck={ck}/>;
@@ -1279,7 +1377,8 @@ function App(){
       case 'history':  return <HistoryPage/>;
       case 'reports':  return <ReportsPage cp={cp} ck={ck} label={label}/>;
       default: return null;
-    }
+    }};
+    return <div key={tab} className="tab-slide">{content()}</div>;
   };
 
   const totClicks=useMemo(()=>cp?cp.reduce((s,r)=>s+r.clicks,0):0,[cp]);
@@ -1289,33 +1388,35 @@ function App(){
   return(
     <div className={dark?'dark':''} style={{minHeight:'100vh'}}>
       {/* HEADER */}
-      <header className="card border-b px-4 py-0" style={{position:'sticky',top:0,zIndex:50,backdropFilter:'blur(12px)',WebkitBackdropFilter:'blur(12px)',boxShadow:'0 1px 12px rgba(0,0,0,.07)'}}>
+      <header className="border-b px-4 py-0" style={{position:'sticky',top:0,zIndex:50,background:'linear-gradient(90deg,#cc4400 0%,#ff6600 40%,#ff8533 100%)',boxShadow:'0 2px 16px rgba(255,102,0,.35)'}}>
         <div className="max-w-screen-xl mx-auto flex items-center gap-4 h-14">
           <div className="font-bold text-base flex items-center gap-2">
-            <span style={{background:'#3b82f6',color:'#fff',padding:'2px 8px',borderRadius:6,fontSize:11,fontWeight:700}}>GSC PRO</span>
-            {cp&&<span className="text-sm" style={{color:'var(--sub)'}}>{fmt(totClicks)} clicks{clickPct!=null&&<span className={clickPct>0?'gain':' loss'}> {sign(clickPct)}{clickPct.toFixed(1)}%</span>}</span>}
+            <span style={{background:'rgba(255,255,255,.18)',color:'#fff',padding:'2px 10px',borderRadius:6,fontSize:11,fontWeight:800,letterSpacing:'.04em',backdropFilter:'blur(4px)'}}>GSC PRO</span>
+            {cp&&<span className="text-sm" style={{color:'rgba(255,255,255,.85)'}}>{fmt(totClicks)} clicks{clickPct!=null&&<span style={{color:clickPct>0?'#86efac':'#fca5a5',fontWeight:700}}> {sign(clickPct)}{clickPct.toFixed(1)}%</span>}</span>}
           </div>
           {/* SOURCE SWITCHER */}
-          <div className="flex gap-1.5 ml-2 p-1 rounded-xl" style={{background:'var(--bdr)'}}>
-            <button className={`src-btn ${src==='ahrefs'?'src-on':'src-off'} text-xs`} onClick={()=>{setSrc('ahrefs');setTab('overview');}}>📡 Ahrefs</button>
-            <button className={`src-btn ${src==='gsc'?'src-on':'src-off'} text-xs`} onClick={()=>{setSrc('gsc');setTab(gscData?'overview':'connect');}}>🔑 GSC Live</button>
+          <div className="flex gap-1.5 ml-2 p-1 rounded-xl" style={{background:'rgba(0,0,0,.15)'}}>
+            <button className={`src-btn text-xs`} style={{background:src==='ahrefs'?'#fff':'transparent',color:src==='ahrefs'?'#ff6600':'rgba(255,255,255,.8)',border:'none'}} onClick={()=>{setSrc('ahrefs');setTab('overview');}}>📡 Ahrefs</button>
+            <button className={`src-btn text-xs`} style={{background:src==='gsc'?'#fff':'transparent',color:src==='gsc'?'#ff6600':'rgba(255,255,255,.8)',border:'none'}} onClick={()=>{setSrc('gsc');setTab(gscData?'overview':'connect');}}>🔑 GSC Live</button>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            {alertCount>0&&<span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{background:'#ef4444',color:'#fff'}}>{alertCount} critical</span>}
-            {decayCount>0&&<span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{background:'#f59e0b',color:'#fff'}}>{decayCount} decay</span>}
-            <button onClick={()=>setDark(d=>!d)} style={{width:32,height:32,borderRadius:'50%',border:'1px solid var(--bdr)',background:'var(--card)',cursor:'pointer',fontSize:16}}>
+            {alertCount>0&&<span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{background:'rgba(0,0,0,.3)',color:'#fca5a5'}}>{alertCount} critical</span>}
+            {decayCount>0&&<span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{background:'rgba(0,0,0,.3)',color:'#fde68a'}}>{decayCount} decay</span>}
+            <button onClick={()=>setDark(d=>!d)} style={{width:32,height:32,borderRadius:'50%',border:'1px solid rgba(255,255,255,.3)',background:'rgba(255,255,255,.15)',cursor:'pointer',fontSize:16}}>
               {dark?'☀️':'🌙'}
             </button>
           </div>
         </div>
         {/* ANALYSIS TABS (shown when data loaded OR src=ahrefs) */}
         {(src==='ahrefs'||gscData)&&(
-          <div className="max-w-screen-xl mx-auto flex overflow-x-auto gap-0 pb-0" style={{scrollbarWidth:'none'}}>
+          <div className="max-w-screen-xl mx-auto flex overflow-x-auto gap-0 pb-0" style={{scrollbarWidth:'none',background:'rgba(0,0,0,.15)',borderRadius:'0 0 0 0'}}>
             {ANALYSIS_TABS.map(t=>(
-              <button key={t.id} className={`text-xs px-3 py-2.5 whitespace-nowrap ${tab===t.id?'t-active':'t-inactive'}`} onClick={()=>setTab(t.id)}>
+              <button key={t.id} onClick={()=>setTab(t.id)}
+                className="text-xs px-3 py-2.5 whitespace-nowrap"
+                style={{color:tab===t.id?'#fff':'rgba(255,255,255,.65)',borderBottom:tab===t.id?'2px solid #fff':'2px solid transparent',fontWeight:tab===t.id?700:400,background:'transparent',border:'none',borderBottom:tab===t.id?'2px solid #fff':'2px solid transparent',cursor:'pointer',transition:'all .15s'}}>
                 {t.lbl}
-                {t.id==='alerts'&&alertCount>0&&<span className="ml-1 text-xs font-bold" style={{color:'#ef4444'}}>{alertCount}</span>}
-                {t.id==='decay'&&decayCount>0&&<span className="ml-1 text-xs font-bold" style={{color:'#f59e0b'}}>{decayCount}</span>}
+                {t.id==='alerts'&&alertCount>0&&<span className="ml-1 text-xs font-bold" style={{color:'#fca5a5'}}>{alertCount}</span>}
+                {t.id==='decay'&&decayCount>0&&<span className="ml-1 text-xs font-bold" style={{color:'#fde68a'}}>{decayCount}</span>}
               </button>
             ))}
           </div>
