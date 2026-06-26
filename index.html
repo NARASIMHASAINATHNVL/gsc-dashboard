@@ -1652,6 +1652,197 @@ function GA4Page(){
   );
 }
 
+/* ─── CTR GAPS PAGE ─── */
+function CTRGapsPage({cp}){
+  const [minImp,setMinImp]=useState(100);
+  const [maxCtr,setMaxCtr]=useState(5);
+  const [maxPos,setMaxPos]=useState(20);
+  const [sortKey,setSortKey]=useState('impressions');
+  const [sortDir,setSortDir]=useState(-1);
+
+  // Expected CTR benchmarks by avg position
+  const expCtr=(pos)=>{
+    if(pos<=1)return 28;
+    if(pos<=2)return 15;
+    if(pos<=3)return 11;
+    if(pos<=4)return 8;
+    if(pos<=5)return 7;
+    if(pos<=6)return 5.5;
+    if(pos<=7)return 4.5;
+    if(pos<=8)return 3.8;
+    if(pos<=9)return 3.2;
+    if(pos<=10)return 2.8;
+    if(pos<=15)return 1.5;
+    if(pos<=20)return 0.9;
+    return 0.5;
+  };
+
+  const rows=useMemo(()=>{
+    if(!cp)return[];
+    return cp
+      .filter(r=>r.impressions>=minImp && (r.ctr*100)<=maxCtr && r.position<=maxPos)
+      .map(r=>{
+        const ctrPct=+(r.ctr*100).toFixed(2);
+        const exp=expCtr(r.position);
+        const gap=+(exp-ctrPct).toFixed(2);
+        const oppClicks=Math.round(r.impressions*(gap/100));
+        const prevCtr=r.prevCtr!=null?(r.prevCtr*100):null;
+        const ctrDelta=prevCtr!=null?(ctrPct-prevCtr).toFixed(2):null;
+        return{...r,ctrPct,exp,gap,oppClicks,prevCtr,ctrDelta};
+      })
+      .sort((a,b)=>sortDir*(a[sortKey]>b[sortKey]?1:-1));
+  },[cp,minImp,maxCtr,maxPos,sortKey,sortDir]);
+
+  const toggleSort=(k)=>{if(sortKey===k)setSortDir(d=>-d);else{setSortKey(k);setSortDir(-1);}};
+  const sortIcon=(k)=>sortKey===k?(sortDir===-1?'▼':'▲'):'';
+
+  const totalOppClicks=rows.reduce((s,r)=>s+r.oppClicks,0);
+
+  const COLS=[
+    {key:'key',label:'Page URL',align:'left',w:320},
+    {key:'impressions',label:'Impressions',align:'right',w:100},
+    {key:'clicks',label:'Clicks',align:'right',w:80},
+    {key:'ctrPct',label:'CTR %',align:'right',w:75},
+    {key:'exp',label:'Exp. CTR %',align:'right',w:90},
+    {key:'gap',label:'CTR Gap',align:'right',w:80},
+    {key:'position',label:'Avg Pos',align:'right',w:80},
+    {key:'oppClicks',label:'Opp. Clicks',align:'right',w:90},
+  ];
+
+  return(
+    <div className="space-y-6 fi">
+      {/* Summary banner */}
+      <div style={{background:'linear-gradient(135deg,rgba(59,130,246,.12),rgba(139,92,246,.12))',border:'1px solid rgba(59,130,246,.25)',borderRadius:12,padding:'16px 20px',display:'flex',gap:24,flexWrap:'wrap',alignItems:'center'}}>
+        <div>
+          <div style={{fontSize:11,fontWeight:700,color:'var(--sub)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>CTR Gap Pages</div>
+          <div style={{fontSize:28,fontWeight:800,color:'#3b82f6'}}>{fmt(rows.length)}</div>
+          <div style={{fontSize:12,color:'var(--sub)'}}>pages with impression potential</div>
+        </div>
+        <div>
+          <div style={{fontSize:11,fontWeight:700,color:'var(--sub)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>Opportunity Clicks</div>
+          <div style={{fontSize:28,fontWeight:800,color:'#22c55e'}}>+{fmt(totalOppClicks)}</div>
+          <div style={{fontSize:12,color:'var(--sub)'}}>clicks/period if CTR = expected</div>
+        </div>
+        <div style={{marginLeft:'auto',fontSize:12,color:'var(--sub)',maxWidth:240}}>
+          💡 These pages <strong>rank and get seen</strong> but users don't click. Fix title &amp; meta description to capture the traffic.
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="card rounded-xl p-4" style={{display:'flex',gap:20,flexWrap:'wrap',alignItems:'center'}}>
+        <div style={{display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:11,fontWeight:600,color:'var(--sub)',textTransform:'uppercase',letterSpacing:'.04em'}}>Min Impressions</label>
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            <input type="range" min="50" max="5000" step="50" value={minImp} onChange={e=>setMinImp(+e.target.value)} style={{width:120}}/>
+            <span style={{fontSize:13,fontWeight:700,minWidth:40}}>{fmt(minImp)}</span>
+          </div>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:11,fontWeight:600,color:'var(--sub)',textTransform:'uppercase',letterSpacing:'.04em'}}>Max CTR %</label>
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            <input type="range" min="0.5" max="15" step="0.5" value={maxCtr} onChange={e=>setMaxCtr(+e.target.value)} style={{width:100}}/>
+            <span style={{fontSize:13,fontWeight:700,minWidth:40}}>{maxCtr}%</span>
+          </div>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:11,fontWeight:600,color:'var(--sub)',textTransform:'uppercase',letterSpacing:'.04em'}}>Max Position</label>
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            <input type="range" min="5" max="50" step="1" value={maxPos} onChange={e=>setMaxPos(+e.target.value)} style={{width:100}}/>
+            <span style={{fontSize:13,fontWeight:700,minWidth:30}}>{maxPos}</span>
+          </div>
+        </div>
+        <div style={{marginLeft:'auto',fontSize:12,color:'var(--sub)'}}>{rows.length} pages · click column headers to sort</div>
+      </div>
+
+      {/* Position bucket summary */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(100px,1fr))',gap:10}}>
+        {[
+          {label:'Top 3',filter:r=>r.position<=3,color:'#22c55e'},
+          {label:'Pos 4–10',filter:r=>r.position>3&&r.position<=10,color:'#3b82f6'},
+          {label:'Pos 11–20',filter:r=>r.position>10&&r.position<=20,color:'#f59e0b'},
+        ].map(b=>{
+          const bRows=rows.filter(b.filter);
+          const bOpp=bRows.reduce((s,r)=>s+r.oppClicks,0);
+          return(
+            <div key={b.label} className="card rounded-xl p-4" style={{textAlign:'center',borderTop:'3px solid '+b.color}}>
+              <div style={{fontSize:11,color:'var(--sub)',fontWeight:600,marginBottom:4}}>{b.label}</div>
+              <div style={{fontSize:20,fontWeight:800,color:b.color}}>{bRows.length}</div>
+              <div style={{fontSize:11,color:'var(--sub)'}}>pages</div>
+              <div style={{fontSize:13,fontWeight:700,color:'var(--tx)',marginTop:4}}>+{fmt(bOpp)}</div>
+              <div style={{fontSize:10,color:'var(--sub)'}}>opp. clicks</div>
+            </div>
+          );
+        })}
+        <div className="card rounded-xl p-4" style={{textAlign:'center',borderTop:'3px solid #8b5cf6'}}>
+          <div style={{fontSize:11,color:'var(--sub)',fontWeight:600,marginBottom:4}}>Avg CTR Gap</div>
+          <div style={{fontSize:20,fontWeight:800,color:'#8b5cf6'}}>
+            {rows.length?(rows.reduce((s,r)=>s+r.gap,0)/rows.length).toFixed(1):0}%
+          </div>
+          <div style={{fontSize:11,color:'var(--sub)'}}>below expected</div>
+        </div>
+      </div>
+
+      {/* Table */}
+      {rows.length===0?(
+        <div className="card rounded-xl p-10 text-center" style={{color:'var(--sub)'}}>
+          No pages match the current filters. Try increasing Max CTR % or lowering Min Impressions.
+        </div>
+      ):(
+        <div className="card rounded-xl overflow-hidden">
+          <div className="tbl-wrap">
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+              <thead>
+                <tr style={{background:'var(--bdr)'}}>
+                  {COLS.map(c=>(
+                    <th key={c.key} onClick={()=>toggleSort(c.key)}
+                      style={{padding:'8px 10px',textAlign:c.align,color:'var(--sub)',fontWeight:700,fontSize:11,cursor:'pointer',whiteSpace:'nowrap',userSelect:'none',width:c.w}}>
+                      {c.label} {sortIcon(c.key)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r,i)=>{
+                  const ctrBarW=Math.min(r.ctrPct/r.exp*100,100);
+                  const posColor=r.position<=3?'#22c55e':r.position<=10?'#3b82f6':r.position<=20?'#f59e0b':'#94a3b8';
+                  const gapColor=r.gap>5?'#ef4444':r.gap>2?'#f59e0b':'#94a3b8';
+                  return(
+                    <tr key={r.key} className="row-hover" style={{borderBottom:'1px solid var(--bdr)'}}>
+                      <td style={{padding:'8px 10px',maxWidth:320,width:320}}>
+                        <a href={r.key} target="_blank" rel="noreferrer"
+                          style={{color:'var(--tx)',textDecoration:'none',fontSize:11,display:'block',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:310}}
+                          title={r.key}>{r.key.replace(/^https?:\/\/(www\.)?bankbazaar\.com/,'')}</a>
+                      </td>
+                      <td style={{textAlign:'right',padding:'8px 10px',fontWeight:700,color:'#3b82f6'}}>{fmt(r.impressions)}</td>
+                      <td style={{textAlign:'right',padding:'8px 10px'}}>{fmt(r.clicks)}</td>
+                      <td style={{textAlign:'right',padding:'8px 10px'}}>
+                        <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2}}>
+                          <span style={{fontWeight:700}}>{r.ctrPct}%</span>
+                          <div style={{width:50,height:3,background:'var(--bdr)',borderRadius:2}}>
+                            <div style={{width:ctrBarW+'%',height:'100%',background:ctrBarW>60?'#22c55e':ctrBarW>30?'#f59e0b':'#ef4444',borderRadius:2}}></div>
+                          </div>
+                        </div>
+                      </td>
+                      <td style={{textAlign:'right',padding:'8px 10px',color:'var(--sub)'}}>{r.exp}%</td>
+                      <td style={{textAlign:'right',padding:'8px 10px',color:gapColor,fontWeight:700}}>-{r.gap}%</td>
+                      <td style={{textAlign:'right',padding:'8px 10px'}}>
+                        <span style={{color:posColor,fontWeight:700}}>{r.position.toFixed(1)}</span>
+                      </td>
+                      <td style={{textAlign:'right',padding:'8px 10px'}}>
+                        <span style={{color:'#22c55e',fontWeight:700}}>+{fmt(r.oppClicks)}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── ANALYSIS TABS ─── */
 const ANALYSIS_TABS=[
   {id:'overview',lbl:'📊 Overview'},
@@ -1666,6 +1857,7 @@ const ANALYSIS_TABS=[
   {id:'history',lbl:'📅 History'},
   {id:'reports',lbl:'📋 Reports'},
   {id:'analytics',lbl:'📊 GA4 Analytics'},
+  {id:'ctr',lbl:'👁 CTR Gaps'},
 ];
 
 /* ─── APP ─── */
@@ -1776,6 +1968,7 @@ function App(){
 
   const renderAnalysis=()=>{
     if(tab==='analytics') return <GA4Page/>;
+    if(tab==='ctr') return <CTRGapsPage cp={cp}/>;
     if(!cp){
       return(
         <div className="text-center py-20" style={{color:'var(--sub)'}}>
@@ -1799,12 +1992,55 @@ function App(){
     }
   };
 
+  const totClicks=useMemo(()=>cp?cp.reduce((s,r)=>s+r.clicks,0):0,[cp]);
+  const prevTotClicks=useMemo(()=>cp?cp.reduce((s,r)=>s+(r.prevClicks||0),0):0,[cp]);
+  const clickPct=pctC(totClicks,prevTotClicks);
+
+  const PRESETS=[
+    {id:'1m',label:'Last 1 Month vs Prev Month'},
+    {id:'3m',label:'Last 3 Months vs Prev Period'},
+    {id:'6m',label:'Last 6 Months vs Prev Period'},
+    {id:'custom',label:'Custom Date Range'},
+  ];
+  const presetToDates=(p)=>{
+    const today=new Date();
+    const fmtD=d=>d.toISOString().split('T')[0];
+    const sub=(d,days)=>{const r=new Date(d);r.setDate(r.getDate()-days);return r;};
+    if(p==='1m'){const e=sub(today,1),s=sub(e,29),pe=sub(s,1),ps=sub(pe,29);return{s:fmtD(s),e:fmtD(e),ps:fmtD(ps),pe:fmtD(pe)};}
+    if(p==='3m'){const e=sub(today,1),s=sub(e,89),pe=sub(s,1),ps=sub(pe,89);return{s:fmtD(s),e:fmtD(e),ps:fmtD(ps),pe:fmtD(pe)};}
+    if(p==='6m'){const e=sub(today,1),s=sub(e,179),pe=sub(s,1),ps=sub(pe,179);return{s:fmtD(s),e:fmtD(e),ps:fmtD(ps),pe:fmtD(pe)};}
+    return null;
+  };
+  const handlePresetChange=(p)=>{setPreset(p);if(p!=='custom'){const d=presetToDates(p);if(d)setEditDates(d);}};
+
+  const applyChanges=async()=>{
+    if(!gscMeta||!editDates)return;
+    const{token,sites}=gscMeta;
+    const d=editDates;
+    const activeSite=editSite||gscMeta.site;
+    if(!d.s||!d.e||!d.ps||!d.pe)return;
+    setRefetching(true);setMobileMenuOpen(false);
+    const fetchG=async(start,end,dim)=>{
+      const r=await fetch('https://www.googleapis.com/webmasters/v3/sites/'+encodeURIComponent(activeSite)+'/searchAnalytics/query',
+        {method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+         body:JSON.stringify({startDate:start,endDate:end,dimensions:[dim==='pages'?'page':'query'],rowLimit:500,dataState:'final'})});
+      const j=await r.json();
+      if(j.error)throw new Error(j.error.message);
+      return(j.rows||[]).map(row=>({key:row.keys[0],clicks:row.clicks,impressions:row.impressions,ctr:row.ctr,position:row.position}));
+    };
+    try{
+      const[pC,pP,qC,qP]=await Promise.all([fetchG(d.s,d.e,'pages'),fetchG(d.ps,d.pe,'pages'),fetchG(d.s,d.e,'queries'),fetchG(d.ps,d.pe,'queries')]);
+      setGscMeta(m=>({...m,site:activeSite,dates:d}));
+      setGscData({cp:computeComp(pC,pP),ck:computeComp(qC,qP),label:activeSite+' · '+d.s+' vs '+d.ps,_meta:{token,site:activeSite,sites,dates:d}});
+    }catch(e){alert('GSC error: '+e.message);}
+    setRefetching(false);
+  };
+
   /* auth gate — after all hooks */
   if(!authed) return <LoginScreen onAuth={()=>setAuthed(true)}/>;
 
   return(
     <div className={dark?'dark':''} style={{minHeight:'100vh'}}>
-      {/* HEADER */}
       <header style={{position:'sticky',top:0,zIndex:50,background:'linear-gradient(90deg,#0f172a 0%,#1e293b 60%,#431407 100%)',boxShadow:'0 2px 20px rgba(0,0,0,.4)',borderBottom:'1px solid rgba(255,102,0,.25)'}}>
         <div style={{maxWidth:1280,margin:'0 auto',padding:'0 16px',display:'flex',alignItems:'center',gap:10,height:54}}>
           <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
@@ -1863,7 +2099,6 @@ function App(){
             <button className="hdr-hamburger" style={{display:'none',width:32,height:32,borderRadius:6,border:'1px solid rgba(255,255,255,.15)',background:'rgba(255,255,255,.08)',cursor:'pointer',alignItems:'center',justifyContent:'center',fontSize:16}} onClick={()=>setMobileMenuOpen(m=>!m)}>☰</button>
           </div>
         </div>
-        {/* TABS */}
         {(src==='ahrefs'||gscData||tab==='analytics')&&(
           <div style={{maxWidth:1280,margin:'0 auto',display:'flex',overflowX:'auto',scrollbarWidth:'none',padding:'0 8px'}}>
             {ANALYSIS_TABS.map(t=>(
@@ -1875,7 +2110,6 @@ function App(){
             ))}
           </div>
         )}
-        {/* MOBILE MENU */}
         {mobileMenuOpen&&gscMeta&&src==='gsc'&&editDates&&(
           <div style={{background:'rgba(0,0,0,.88)',padding:'12px 16px',display:'flex',flexDirection:'column',gap:10}}>
             {gscMeta.sites&&gscMeta.sites.length>1&&(
@@ -1905,7 +2139,6 @@ function App(){
         )}
       </header>
 
-      {/* MAIN */}
       <main style={{maxWidth:1280,margin:'0 auto',padding:'24px 16px'}}>
         {src==='ahrefs'&&(
           <>
@@ -1940,61 +2173,7 @@ try{
 </script>
 </body>
 </html>
-tyle={{width:'100%'}}/></div>
-                  </div>
-                )}
-                <button className="apply-btn" onClick={applyChanges} disabled={refetching} style={{width:'100%',padding:10}}>{refetching?'⟳ Loading…':'Apply & Refresh'}</button>
-              </>
-            )}
-          </div>
-        )}
-        {(src==='ahrefs'||gscData)&&(
-          <div style={{maxWidth:1280,margin:'0 auto',overflowX:'auto',scrollbarWidth:'none',display:'flex',background:'rgba(0,0,0,.2)'}}>
-            {ANALYSIS_TABS.map(t=>(
-              <button key={t.id} onClick={()=>setTab(t.id)} style={{padding:'8px 12px',fontSize:11,fontWeight:tab===t.id?700:400,color:tab===t.id?'#fff':'rgba(255,255,255,.6)',borderBottom:tab===t.id?'2px solid #fff':'2px solid transparent',background:'transparent',border:'none',cursor:'pointer',whiteSpace:'nowrap',transition:'all .15s'}}>
-                {t.lbl}
-                {t.id==='alerts'&&alertCount>0&&<span style={{marginLeft:3,color:'#fca5a5',fontWeight:700,fontSize:10}}>{alertCount}</span>}
-                {t.id==='decay'&&decayCount>0&&<span style={{marginLeft:3,color:'#fde68a',fontWeight:700,fontSize:10}}>{decayCount}</span>}
-              </button>
-            ))}
-          </div>
-        )}
-      </header>
-      <main style={{maxWidth:1280,margin:'0 auto',padding:'16px 12px'}}>
-        {src==='ahrefs'&&(
-          <>
-            {tab==='connect'||(!ahrefsData&&tab!=='connect')
-              ?<ImportPage onLoad={d=>{setAhrefsData(d);setTab('overview');}}/>
-              :renderAnalysis()
-            }
-          </>
-        )}
-        {src==='gsc'&&(
-          <>
-            {!gscData
-              ?<GscOAuthPage onLoad={d=>{if(d._meta){setGscMeta(d._meta);setEditDates({...d._meta.dates});setEditSite(d._meta.site);setPreset('1m');}setGscData(d);setTab('overview');}}/>
-              :renderAnalysis()
-            }
-          </>
-        )}
-      </main>
-      <footer style={{textAlign:'center',padding:'12px',fontSize:11,color:'var(--sub)'}}>
-        GSC Analytics Pro · BankBazaar.com · {label}
-      </footer>
-      <BackToTop/>
-    </div>
-  );
-}
-ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
-</script>
-</body>
-</html>
-tyle={{textAlign:'center',padding:'12px',fontSize:11,color:'var(--sub)'}}>
-        GSC Analytics Pro · BankBazaar.com · {label}
-      </footer>
-      <BackToTop/>
-    </div>
-  );
+
 }
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
 </script>
