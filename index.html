@@ -1395,8 +1395,43 @@ function App(){
   const [gscMeta,setGscMeta]=useState(null); // {token,site,sites,dates}
   const [editDates,setEditDates]=useState(null);
   const [editSite,setEditSite]=useState('');
+  const [preset,setPreset]=useState('1m');
   const [refetching,setRefetching]=useState(false);
   const [mobileMenuOpen,setMobileMenuOpen]=useState(false);
+
+  const PRESETS=[
+    {id:'1m', label:'Last 1 Month vs Prev Month'},
+    {id:'3m', label:'Last 3 Months vs Prev Period'},
+    {id:'6m', label:'Last 6 Months vs Prev Period'},
+    {id:'custom', label:'Custom Date Range'},
+  ];
+
+  const presetToDates=(p)=>{
+    const today=new Date();
+    const fmt=d=>d.toISOString().split('T')[0];
+    const sub=(d,days)=>{const r=new Date(d);r.setDate(r.getDate()-days);return r;};
+    if(p==='1m'){
+      const e=sub(today,1); const s=sub(e,29);
+      const pe=sub(s,1);    const ps=sub(pe,29);
+      return{s:fmt(s),e:fmt(e),ps:fmt(ps),pe:fmt(pe)};
+    }
+    if(p==='3m'){
+      const e=sub(today,1); const s=sub(e,89);
+      const pe=sub(s,1);    const ps=sub(pe,89);
+      return{s:fmt(s),e:fmt(e),ps:fmt(ps),pe:fmt(pe)};
+    }
+    if(p==='6m'){
+      const e=sub(today,1); const s=sub(e,179);
+      const pe=sub(s,1);    const ps=sub(pe,179);
+      return{s:fmt(s),e:fmt(e),ps:fmt(ps),pe:fmt(pe)};
+    }
+    return null;
+  };
+
+  const handlePresetChange=(p)=>{
+    setPreset(p);
+    if(p!=='custom'){const d=presetToDates(p);if(d)setEditDates(d);}
+  };
 
   // Pre-bake Ahrefs data on mount
   useEffect(()=>{
@@ -1494,28 +1529,38 @@ function App(){
               {gscMeta.sites&&gscMeta.sites.length>1&&(
                 <div style={{display:'flex',flexDirection:'column',gap:2}}>
                   <span className="hdr-label">Property</span>
-                  <select className="hdr-input" value={editSite} onChange={e=>setEditSite(e.target.value)} style={{maxWidth:180}}>
+                  <select className="hdr-input" value={editSite} onChange={e=>setEditSite(e.target.value)} style={{maxWidth:170}}>
                     {(gscMeta.sites||[]).map(s=><option key={s} value={s}>{s.replace(/^https?:\/\/(www\.)?/,'').replace(/\/$/,'')}</option>)}
                   </select>
                 </div>
               )}
               <div style={{display:'flex',flexDirection:'column',gap:2}}>
-                <span className="hdr-label">Current</span>
-                <div style={{display:'flex',gap:3,alignItems:'center'}}>
-                  <input className="hdr-input" type="date" value={editDates.s} onChange={e=>setEditDates(d=>({...d,s:e.target.value}))}/>
-                  <span style={{color:'rgba(255,255,255,.4)',fontSize:10}}>to</span>
-                  <input className="hdr-input" type="date" value={editDates.e} onChange={e=>setEditDates(d=>({...d,e:e.target.value}))}/>
-                </div>
+                <span className="hdr-label">Date Range</span>
+                <select className="hdr-input" value={preset} onChange={e=>handlePresetChange(e.target.value)} style={{minWidth:220}}>
+                  {PRESETS.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}
+                </select>
               </div>
-              <div style={{display:'flex',flexDirection:'column',gap:2}}>
-                <span className="hdr-label">Compare</span>
-                <div style={{display:'flex',gap:3,alignItems:'center'}}>
-                  <input className="hdr-input" type="date" value={editDates.ps} onChange={e=>setEditDates(d=>({...d,ps:e.target.value}))}/>
-                  <span style={{color:'rgba(255,255,255,.4)',fontSize:10}}>to</span>
-                  <input className="hdr-input" type="date" value={editDates.pe} onChange={e=>setEditDates(d=>({...d,pe:e.target.value}))}/>
-                </div>
-              </div>
-              <button className="apply-btn" onClick={applyChanges} disabled={refetching}>{refetching?'⟳':'Apply'}</button>
+              {preset==='custom'&&(
+                <>
+                  <div style={{display:'flex',flexDirection:'column',gap:2}}>
+                    <span className="hdr-label">Current Period</span>
+                    <div style={{display:'flex',gap:3,alignItems:'center'}}>
+                      <input className="hdr-input" type="date" value={editDates.s} onChange={e=>setEditDates(d=>({...d,s:e.target.value}))}/>
+                      <span style={{color:'rgba(255,255,255,.35)',fontSize:10}}>to</span>
+                      <input className="hdr-input" type="date" value={editDates.e} onChange={e=>setEditDates(d=>({...d,e:e.target.value}))}/>
+                    </div>
+                  </div>
+                  <div style={{display:'flex',flexDirection:'column',gap:2}}>
+                    <span className="hdr-label">Compare Period</span>
+                    <div style={{display:'flex',gap:3,alignItems:'center'}}>
+                      <input className="hdr-input" type="date" value={editDates.ps} onChange={e=>setEditDates(d=>({...d,ps:e.target.value}))}/>
+                      <span style={{color:'rgba(255,255,255,.35)',fontSize:10}}>to</span>
+                      <input className="hdr-input" type="date" value={editDates.pe} onChange={e=>setEditDates(d=>({...d,pe:e.target.value}))}/>
+                    </div>
+                  </div>
+                </>
+              )}
+              <button className="apply-btn" onClick={applyChanges} disabled={refetching}>{refetching?'⟳ Loading':'Apply'}</button>
             </div>
           )}
           <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
@@ -1539,12 +1584,19 @@ function App(){
                     {(gscMeta.sites||[]).map(s=><option key={s} value={s}>{s.replace(/^https?:\/\/(www\.)?/,'').replace(/\/$/,'')}</option>)}
                   </select></div>
                 )}
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-                  <div><span className="hdr-label" style={{display:'block',marginBottom:3}}>From</span><input className="hdr-input" type="date" value={editDates.s} onChange={e=>setEditDates(d=>({...d,s:e.target.value}))} style={{width:'100%'}}/></div>
-                  <div><span className="hdr-label" style={{display:'block',marginBottom:3}}>To</span><input className="hdr-input" type="date" value={editDates.e} onChange={e=>setEditDates(d=>({...d,e:e.target.value}))} style={{width:'100%'}}/></div>
-                  <div><span className="hdr-label" style={{display:'block',marginBottom:3}}>Prev From</span><input className="hdr-input" type="date" value={editDates.ps} onChange={e=>setEditDates(d=>({...d,ps:e.target.value}))} style={{width:'100%'}}/></div>
-                  <div><span className="hdr-label" style={{display:'block',marginBottom:3}}>Prev To</span><input className="hdr-input" type="date" value={editDates.pe} onChange={e=>setEditDates(d=>({...d,pe:e.target.value}))} style={{width:'100%'}}/></div>
+                <div><span className="hdr-label" style={{display:'block',marginBottom:3}}>Date Range</span>
+                  <select className="hdr-input" value={preset} onChange={e=>handlePresetChange(e.target.value)} style={{width:'100%'}}>
+                    {PRESETS.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}
+                  </select>
                 </div>
+                {preset==='custom'&&(
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                    <div><span className="hdr-label" style={{display:'block',marginBottom:3}}>From</span><input className="hdr-input" type="date" value={editDates.s} onChange={e=>setEditDates(d=>({...d,s:e.target.value}))} style={{width:'100%'}}/></div>
+                    <div><span className="hdr-label" style={{display:'block',marginBottom:3}}>To</span><input className="hdr-input" type="date" value={editDates.e} onChange={e=>setEditDates(d=>({...d,e:e.target.value}))} style={{width:'100%'}}/></div>
+                    <div><span className="hdr-label" style={{display:'block',marginBottom:3}}>Prev From</span><input className="hdr-input" type="date" value={editDates.ps} onChange={e=>setEditDates(d=>({...d,ps:e.target.value}))} style={{width:'100%'}}/></div>
+                    <div><span className="hdr-label" style={{display:'block',marginBottom:3}}>Prev To</span><input className="hdr-input" type="date" value={editDates.pe} onChange={e=>setEditDates(d=>({...d,pe:e.target.value}))} style={{width:'100%'}}/></div>
+                  </div>
+                )}
                 <button className="apply-btn" onClick={applyChanges} disabled={refetching} style={{width:'100%',padding:10}}>{refetching?'⟳ Loading…':'Apply & Refresh'}</button>
               </>
             )}
@@ -1574,7 +1626,7 @@ function App(){
         {src==='gsc'&&(
           <>
             {!gscData
-              ?<GscOAuthPage onLoad={d=>{if(d._meta){setGscMeta(d._meta);setEditDates({...d._meta.dates});setEditSite(d._meta.site);}setGscData(d);setTab('overview');}}/>
+              ?<GscOAuthPage onLoad={d=>{if(d._meta){setGscMeta(d._meta);setEditDates({...d._meta.dates});setEditSite(d._meta.site);setPreset('1m');}setGscData(d);setTab('overview');}}/>
               :renderAnalysis()
             }
           </>
@@ -1745,7 +1797,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
         {src==='gsc'&&(
           <>
             {!gscData
-              ?<GscOAuthPage onLoad={d=>{if(d._meta){setGscMeta(d._meta);setEditDates({...d._meta.dates});setEditSite(d._meta.site);}setGscData(d);setTab('overview');}}/>
+              ?<GscOAuthPage onLoad={d=>{if(d._meta){setGscMeta(d._meta);setEditDates({...d._meta.dates});setEditSite(d._meta.site);setPreset('1m');}setGscData(d);setTab('overview');}}/>
               :renderAnalysis()
             }
           </>
