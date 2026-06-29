@@ -548,6 +548,45 @@ function OverviewPage({cp,ck,label}){
   const topG=useMemo(()=>[...filteredCP].sort((a,b)=>(b.clicksDiff||0)-(a.clicksDiff||0)).filter(p=>(p.clicksDiff||0)>0),[filteredCP]);
   const topL=useMemo(()=>[...filteredCP].sort((a,b)=>(a.clicksDiff||0)-(b.clicksDiff||0)).filter(p=>(p.clicksDiff||0)<0),[filteredCP]);
 
+  const posCliff=useMemo(()=>{
+    const fell3=filteredCP.filter(p=>p.prevPosition!=null&&p.prevPosition<=3&&p.position>3)
+      .sort((a,b)=>b.impressions-a.impressions);
+    const fell10=filteredCP.filter(p=>p.prevPosition!=null&&p.prevPosition>3&&p.prevPosition<=10&&p.position>10)
+      .sort((a,b)=>b.impressions-a.impressions);
+    return{fell3,fell10};
+  },[filteredCP]);
+
+  const impSurge=useMemo(()=>
+    filteredCP.filter(p=>(p.impPct||0)>=30&&p.ctrDiff!=null&&p.ctrDiff<=0&&p.impressions>500)
+      .sort((a,b)=>b.impressions-a.impressions)
+  ,[filteredCP]);
+
+  const newLost=useMemo(()=>{
+    const newPages=filteredCP.filter(p=>(!p.prevImpressions||p.prevImpressions===0)&&p.clicks>0)
+      .sort((a,b)=>b.clicks-a.clicks);
+    const lostPages=filteredCP.filter(p=>(p.prevClicks||0)>0&&p.clicks===0)
+      .sort((a,b)=>(b.prevClicks||0)-(a.prevClicks||0));
+    return{newPages,lostPages};
+  },[filteredCP]);
+
+  const catPerf=useMemo(()=>{
+    const map={};
+    filteredCP.forEach(p=>{
+      const cat=classifyURL(p.key);
+      if(!map[cat]) map[cat]={cat,clicks:0,prevClicks:0,impressions:0,ctrNum:0,ctrDen:0};
+      map[cat].clicks+=p.clicks;
+      map[cat].prevClicks+=(p.prevClicks||0);
+      map[cat].impressions+=p.impressions;
+      map[cat].ctrNum+=p.ctr*p.impressions;
+      map[cat].ctrDen+=p.impressions;
+    });
+    return Object.values(map).map(r=>({
+      ...r,
+      ctr:r.ctrDen>0?r.ctrNum/r.ctrDen:0,
+      clicksPct:r.prevClicks>0?((r.clicks-r.prevClicks)/r.prevClicks)*100:null
+    })).sort((a,b)=>b.clicks-a.clicks);
+  },[filteredCP]);
+
   const isFiltered=filterQ.trim()||excludeQ.trim()||catFilter!=='All';
 
   return(
@@ -670,6 +709,191 @@ function OverviewPage({cp,ck,label}){
           </div>
         </div>
       </div>
+      {/* ── POSITION CLIFF ── */}
+      {(posCliff.fell3.length>0||posCliff.fell10.length>0)&&(
+      <div className="card rounded-xl p-5" style={{border:'1px solid rgba(239,68,68,.25)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}>
+          <span style={{fontSize:16}}>🪨</span>
+          <h3 className="font-semibold" style={{margin:0,color:'#ef4444'}}>Position Cliff</h3>
+          <span className="text-xs" style={{color:'var(--sub)',fontWeight:400}}>Pages that lost prime SERP real estate — needs immediate content or link action</span>
+          <span style={{marginLeft:'auto',fontSize:11,fontWeight:700,color:'#ef4444',background:'rgba(239,68,68,.1)',padding:'3px 10px',borderRadius:20}}>
+            {posCliff.fell3.length+posCliff.fell10.length} pages
+          </span>
+        </div>
+        <div className="grid md:grid-cols-2 gap-4">
+          {/* Fell out of top 3 */}
+          <div>
+            <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
+              <span style={{fontSize:11,fontWeight:700,color:'#fff',background:'#ef4444',padding:'2px 8px',borderRadius:10}}>TOP 3 → LOST</span>
+              <span style={{fontSize:11,color:'var(--sub)'}}>{posCliff.fell3.length} pages · was ≤3, now &gt;3</span>
+            </div>
+            <div style={{maxHeight:280,overflowY:'auto'}}>
+              {posCliff.fell3.length===0
+                ?<div className="text-sm py-4 text-center" style={{color:'var(--sub)'}}>No pages dropped out of top 3.</div>
+                :posCliff.fell3.map((p,i)=>(
+                <div key={i} className="gl-row flex items-center gap-2 border-b last:border-0"
+                  style={{borderColor:'var(--bdr)',cursor:'pointer'}}
+                  onClick={()=>copyURL(p.key)} title={`Click to copy: ${p.key}`}>
+                  <span className="text-xs font-bold" style={{color:'var(--sub)',minWidth:'20px'}}>{i+1}.</span>
+                  <div className="flex-1 text-sm truncate">{shortURL(p.key)}</div>
+                  <span style={{fontSize:11,color:'#ef4444',fontWeight:700,whiteSpace:'nowrap'}}>
+                    {p.prevPosition.toFixed(1)} → {p.position.toFixed(1)}
+                  </span>
+                  <span style={{fontSize:10,background:'rgba(239,68,68,.1)',color:'#ef4444',padding:'1px 6px',borderRadius:8,whiteSpace:'nowrap'}}>
+                    +{(p.position-p.prevPosition).toFixed(1)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Fell out of top 10 */}
+          <div>
+            <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
+              <span style={{fontSize:11,fontWeight:700,color:'#fff',background:'#f97316',padding:'2px 8px',borderRadius:10}}>TOP 10 → LOST</span>
+              <span style={{fontSize:11,color:'var(--sub)'}}>{posCliff.fell10.length} pages · was 4-10, now &gt;10</span>
+            </div>
+            <div style={{maxHeight:280,overflowY:'auto'}}>
+              {posCliff.fell10.length===0
+                ?<div className="text-sm py-4 text-center" style={{color:'var(--sub)'}}>No pages dropped out of top 10.</div>
+                :posCliff.fell10.map((p,i)=>(
+                <div key={i} className="gl-row flex items-center gap-2 border-b last:border-0"
+                  style={{borderColor:'var(--bdr)',cursor:'pointer'}}
+                  onClick={()=>copyURL(p.key)} title={`Click to copy: ${p.key}`}>
+                  <span className="text-xs font-bold" style={{color:'var(--sub)',minWidth:'20px'}}>{i+1}.</span>
+                  <div className="flex-1 text-sm truncate">{shortURL(p.key)}</div>
+                  <span style={{fontSize:11,color:'#f97316',fontWeight:700,whiteSpace:'nowrap'}}>
+                    {p.prevPosition.toFixed(1)} → {p.position.toFixed(1)}
+                  </span>
+                  <span style={{fontSize:10,background:'rgba(249,115,22,.1)',color:'#f97316',padding:'1px 6px',borderRadius:8,whiteSpace:'nowrap'}}>
+                    +{(p.position-p.prevPosition).toFixed(1)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+      )}
+
+      {/* ── IMPRESSION SURGE / NO CLICKS ── */}
+      {impSurge.length>0&&(
+      <div className="card rounded-xl p-5" style={{border:'1px solid rgba(249,115,22,.25)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
+          <span style={{fontSize:16}}>📡</span>
+          <h3 className="font-semibold" style={{margin:0,color:'#f97316'}}>Impression surge — no clicks</h3>
+          <span className="text-xs" style={{color:'var(--sub)',fontWeight:400}}>Impressions grew 30%+ but CTR dropped or flat — title/meta rewrite needed</span>
+          <span style={{marginLeft:'auto',fontSize:11,fontWeight:700,color:'#f97316',background:'rgba(249,115,22,.1)',padding:'3px 10px',borderRadius:20}}>{impSurge.length} pages</span>
+        </div>
+        <div style={{maxHeight:260,overflowY:'auto'}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr auto auto auto auto',gap:'4px 12px',alignItems:'center',fontSize:11,fontWeight:700,color:'var(--sub)',padding:'0 4px 6px',borderBottom:'1px solid var(--bdr)'}}>
+            <span>Page</span><span>Impr</span><span>Impr Δ</span><span>CTR (cur)</span><span>CTR Δ</span>
+          </div>
+          {impSurge.map((p,i)=>(
+            <div key={i} style={{display:'grid',gridTemplateColumns:'1fr auto auto auto auto',gap:'4px 12px',alignItems:'center',padding:'5px 4px',borderBottom:'1px solid var(--bdr)',cursor:'pointer'}}
+              onClick={()=>copyURL(p.key)} title={`Click to copy: ${p.key}`}>
+              <div className="text-sm truncate">{shortURL(p.key)}</div>
+              <span style={{fontSize:11,color:'var(--tx)',whiteSpace:'nowrap'}}>{fmt(p.impressions)}</span>
+              <span style={{fontSize:11,fontWeight:700,color:'#22c55e',whiteSpace:'nowrap'}}>+{p.impPct.toFixed(0)}%</span>
+              <span style={{fontSize:11,color:'var(--tx)',whiteSpace:'nowrap'}}>{fmtP(p.ctr)}</span>
+              <span style={{fontSize:11,fontWeight:700,color:'#ef4444',whiteSpace:'nowrap'}}>{p.ctrDiff===0?'flat':((p.ctrDiff||0)*100).toFixed(2)+'%'}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      )}
+
+      {/* ── NEW vs LOST PAGES ── */}
+      {(newLost.newPages.length>0||newLost.lostPages.length>0)&&(
+      <div className="card rounded-xl p-5" style={{border:'1px solid rgba(99,102,241,.25)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}>
+          <span style={{fontSize:16}}>🔄</span>
+          <h3 className="font-semibold" style={{margin:0,color:'#6366f1'}}>New vs lost pages</h3>
+          <span className="text-xs" style={{color:'var(--sub)',fontWeight:400}}>New content gaining clicks vs pages that dropped to zero</span>
+        </div>
+        <div className="grid md:grid-cols-2 gap-4">
+          <div>
+            <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
+              <span style={{fontSize:11,fontWeight:700,color:'#fff',background:'#22c55e',padding:'2px 8px',borderRadius:10}}>NEW ✦</span>
+              <span style={{fontSize:11,color:'var(--sub)'}}>{newLost.newPages.length} pages · first clicks this period</span>
+            </div>
+            <div style={{maxHeight:260,overflowY:'auto'}}>
+              {newLost.newPages.length===0
+                ?<div className="text-sm py-4 text-center" style={{color:'var(--sub)'}}>No new pages this period.</div>
+                :newLost.newPages.map((p,i)=>(
+                <div key={i} className="gl-row flex items-center gap-2 border-b last:border-0"
+                  style={{borderColor:'var(--bdr)',cursor:'pointer'}}
+                  onClick={()=>copyURL(p.key)} title={`Click to copy: ${p.key}`}>
+                  <span className="text-xs font-bold" style={{color:'var(--sub)',minWidth:'20px'}}>{i+1}.</span>
+                  <div className="flex-1 text-sm truncate">{shortURL(p.key)}</div>
+                  <span style={{fontSize:11,fontWeight:700,color:'#22c55e',whiteSpace:'nowrap'}}>{fmt(p.clicks)} clicks</span>
+                  <span style={{fontSize:10,color:'var(--sub)',whiteSpace:'nowrap'}}>pos {p.position.toFixed(1)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
+              <span style={{fontSize:11,fontWeight:700,color:'#fff',background:'#6366f1',padding:'2px 8px',borderRadius:10}}>LOST ✦</span>
+              <span style={{fontSize:11,color:'var(--sub)'}}>{newLost.lostPages.length} pages · had clicks, now zero</span>
+            </div>
+            <div style={{maxHeight:260,overflowY:'auto'}}>
+              {newLost.lostPages.length===0
+                ?<div className="text-sm py-4 text-center" style={{color:'var(--sub)'}}>No lost pages this period.</div>
+                :newLost.lostPages.map((p,i)=>(
+                <div key={i} className="gl-row flex items-center gap-2 border-b last:border-0"
+                  style={{borderColor:'var(--bdr)',cursor:'pointer'}}
+                  onClick={()=>copyURL(p.key)} title={`Click to copy: ${p.key}`}>
+                  <span className="text-xs font-bold" style={{color:'var(--sub)',minWidth:'20px'}}>{i+1}.</span>
+                  <div className="flex-1 text-sm truncate">{shortURL(p.key)}</div>
+                  <span style={{fontSize:11,fontWeight:700,color:'#6366f1',whiteSpace:'nowrap'}}>was {fmt(p.prevClicks)} clicks</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+      )}
+
+      {/* ── CATEGORY PERFORMANCE ── */}
+      {catPerf.length>0&&(
+      <div className="card rounded-xl p-5">
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
+          <span style={{fontSize:16}}>📊</span>
+          <h3 className="font-semibold" style={{margin:0}}>Category performance</h3>
+          <span className="text-xs" style={{color:'var(--sub)',fontWeight:400}}>Clicks, impressions, CTR and trend by URL category</span>
+        </div>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',fontSize:12,borderCollapse:'collapse'}}>
+            <thead>
+              <tr style={{borderBottom:'1px solid var(--bdr)'}}>
+                {['Category','Clicks','vs Prev','Impressions','Avg CTR','Pages'].map(h=>(
+                  <th key={h} style={{textAlign:h==='Category'?'left':'right',padding:'4px 8px',fontWeight:700,color:'var(--sub)',whiteSpace:'nowrap'}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {catPerf.map((r,i)=>{
+                const pct=r.clicksPct;
+                const pctColor=pct==null?'var(--sub)':pct>0?'#22c55e':'#ef4444';
+                const pages=filteredCP.filter(p=>classifyURL(p.key)===r.cat).length;
+                return(
+                <tr key={i} style={{borderBottom:'1px solid var(--bdr)'}}>
+                  <td style={{padding:'6px 8px',fontWeight:500,color:'var(--tx)'}}>{r.cat}</td>
+                  <td style={{padding:'6px 8px',textAlign:'right',color:'var(--tx)'}}>{fmt(r.clicks)}</td>
+                  <td style={{padding:'6px 8px',textAlign:'right',fontWeight:700,color:pctColor}}>
+                    {pct==null?'—':(pct>0?'+':'')+pct.toFixed(1)+'%'}
+                  </td>
+                  <td style={{padding:'6px 8px',textAlign:'right',color:'var(--sub)'}}>{fmt(r.impressions)}</td>
+                  <td style={{padding:'6px 8px',textAlign:'right',color:'var(--sub)'}}>{fmtP(r.ctr)}</td>
+                  <td style={{padding:'6px 8px',textAlign:'right',color:'var(--sub)'}}>{pages}</td>
+                </tr>
+              )})}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      )}
+
       <div className="card rounded-xl p-5">
         <SVGChart data={TREND} title="📈 Daily Clicks (28-day trend)" series={[{key:'cClicks',color:'#3b82f6'},{key:'pClicks',color:'#94a3b8'}]}/>
       </div>
