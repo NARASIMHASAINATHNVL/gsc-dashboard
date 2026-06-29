@@ -506,6 +506,7 @@ const ALL_CATS=['All','Credit Cards','Personal Loan','Home Loan','Vehicle Loan',
 
 function OverviewPage({cp,ck,label}){
   const [filterQ,setFilterQ]=useState('');
+  const [excludeQ,setExcludeQ]=useState('');
   const [catFilter,setCatFilter]=useState('All');
   const [toast,setToast]=useState('');
   const toastRef=useRef(null);
@@ -522,11 +523,15 @@ function OverviewPage({cp,ck,label}){
     let rows=cp;
     if(catFilter!=='All') rows=rows.filter(r=>classifyURL(r.key)===catFilter);
     if(filterQ.trim()){
-      const q=filterQ.trim().toLowerCase();
-      rows=rows.filter(r=>r.key.toLowerCase().includes(q));
+      const patterns=filterQ.split('\n').map(s=>s.trim().toLowerCase()).filter(Boolean);
+      if(patterns.length>0) rows=rows.filter(r=>patterns.some(p=>r.key.toLowerCase().includes(p)));
+    }
+    if(excludeQ.trim()){
+      const excl=excludeQ.split('\n').map(s=>s.trim().toLowerCase()).filter(Boolean);
+      if(excl.length>0) rows=rows.filter(r=>!excl.some(e=>r.key.toLowerCase().includes(e)));
     }
     return rows;
-  },[cp,catFilter,filterQ]);
+  },[cp,catFilter,filterQ,excludeQ]);
 
   // T now uses filteredCP → KPI cards update just like GSC when you apply a page filter
   const T=useMemo(()=>{
@@ -543,39 +548,63 @@ function OverviewPage({cp,ck,label}){
   const topG=useMemo(()=>[...filteredCP].sort((a,b)=>(b.clicksDiff||0)-(a.clicksDiff||0)).filter(p=>(p.clicksDiff||0)>0),[filteredCP]);
   const topL=useMemo(()=>[...filteredCP].sort((a,b)=>(a.clicksDiff||0)-(b.clicksDiff||0)).filter(p=>(p.clicksDiff||0)<0),[filteredCP]);
 
-  const isFiltered=filterQ.trim()||catFilter!=='All';
+  const isFiltered=filterQ.trim()||excludeQ.trim()||catFilter!=='All';
 
   return(
     <div className="space-y-5 fi">
       <CopyToast msg={toast}/>
       {label&&<div className="text-xs px-3 py-1.5 rounded-full inline-block" style={{background:'rgba(59,130,246,.1)',color:'#3b82f6'}}>{label}</div>}
 
-      {/* ── FILTER BAR — above KPI cards so filter context is clear ── */}
+      {/* ── FILTER BAR ── */}
       <div className="card rounded-xl px-4 py-3" style={{border:isFiltered?'1px solid rgba(59,130,246,.4)':'1px solid var(--bdr)'}}>
-        <div style={{display:'flex',flexWrap:'wrap',gap:10,alignItems:'center',marginBottom:10}}>
-          <div style={{position:'relative',flex:'1 1 200px'}}>
-            <span style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',fontSize:13,color:'var(--sub)'}}>🔍</span>
-            <input
+        {/* Row 1: Include + Exclude textareas */}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:10}}>
+          {/* URLs Containing */}
+          <div>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
+              <span style={{fontSize:11,fontWeight:700,color:'#3b82f6',letterSpacing:.4}}>✅ URLs containing</span>
+              {filterQ.trim()&&<span style={{fontSize:10,color:'#3b82f6'}}>{filterQ.split('\n').map(s=>s.trim()).filter(Boolean).length} pattern{filterQ.split('\n').map(s=>s.trim()).filter(Boolean).length!==1?'s':''}</span>}
+            </div>
+            <textarea
               className="w-full rounded-lg text-sm"
-              style={{padding:'8px 36px 8px 32px',border:'1px solid '+(filterQ?'#3b82f6':'var(--bdr)'),background:'var(--card)',color:'var(--tx)',outline:'none'}}
-              placeholder="Filter by URL pattern — e.g. credit-card, personal-loan, ifsc"
+              rows={3}
+              style={{padding:'7px 10px',border:'1px solid '+(filterQ.trim()?'#3b82f6':'var(--bdr)'),background:'var(--card)',color:'var(--tx)',outline:'none',resize:'vertical',fontFamily:'inherit',lineHeight:1.5,width:'100%',boxSizing:'border-box'}}
+              placeholder={"One URL or keyword per line:\npersonal-loan\nhome-loan-interest-rate\nhttps://www.bankbazaar.com/credit-card.html"}
               value={filterQ}
               onChange={e=>setFilterQ(e.target.value)}
             />
-            {filterQ&&<button onClick={()=>setFilterQ('')} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'var(--sub)',fontSize:14,lineHeight:1}}>✕</button>}
           </div>
-          {isFiltered&&(
-            <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
-              <span style={{fontSize:12,fontWeight:700,color:'#3b82f6',background:'rgba(59,130,246,.1)',padding:'4px 10px',borderRadius:20}}>
-                {filteredCP.length} / {cp.length} pages
-              </span>
-              <button onClick={()=>{setFilterQ('');setCatFilter('All');}}
-                style={{fontSize:11,color:'#ef4444',background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.2)',borderRadius:20,padding:'3px 10px',cursor:'pointer',fontWeight:600}}>
-                Clear filters
-              </button>
+          {/* URLs Excluding */}
+          <div>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
+              <span style={{fontSize:11,fontWeight:700,color:'#ef4444',letterSpacing:.4}}>🚫 Exclude URLs containing</span>
+              {excludeQ.trim()&&<span style={{fontSize:10,color:'#ef4444'}}>{excludeQ.split('\n').map(s=>s.trim()).filter(Boolean).length} pattern{excludeQ.split('\n').map(s=>s.trim()).filter(Boolean).length!==1?'s':''}</span>}
             </div>
-          )}
+            <textarea
+              className="w-full rounded-lg text-sm"
+              rows={3}
+              style={{padding:'7px 10px',border:'1px solid '+(excludeQ.trim()?'#ef4444':'var(--bdr)'),background:'var(--card)',color:'var(--tx)',outline:'none',resize:'vertical',fontFamily:'inherit',lineHeight:1.5,width:'100%',boxSizing:'border-box'}}
+              placeholder={"Exclude pages matching these:\napply\nlogin\ncustomer-care"}
+              value={excludeQ}
+              onChange={e=>setExcludeQ(e.target.value)}
+            />
+          </div>
         </div>
+
+        {/* Row 2: Results badge + clear */}
+        {isFiltered&&(
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+            <span style={{fontSize:12,fontWeight:700,color:'#3b82f6',background:'rgba(59,130,246,.1)',padding:'3px 10px',borderRadius:20}}>
+              {filteredCP.length} / {cp.length} pages
+            </span>
+            <button onClick={()=>{setFilterQ('');setExcludeQ('');setCatFilter('All');}}
+              style={{fontSize:11,color:'#ef4444',background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.2)',borderRadius:20,padding:'3px 10px',cursor:'pointer',fontWeight:600}}>
+              Clear all filters
+            </button>
+          </div>
+        )}
+
+        {/* Row 3: Category chips */}
         <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
           {ALL_CATS.map(c=>(
             <button key={c} onClick={()=>setCatFilter(c)}
@@ -585,10 +614,13 @@ function OverviewPage({cp,ck,label}){
             </button>
           ))}
         </div>
+
+        {/* Row 4: Active filter summary */}
         {isFiltered&&(
           <div style={{marginTop:8,fontSize:11,color:'#3b82f6',fontWeight:600}}>
             📊 Metrics below reflect filtered pages only
-            {filterQ&&<span style={{marginLeft:6,color:'var(--sub)',fontWeight:400}}>· URL contains "<strong style={{color:'var(--tx)'}}>{filterQ}</strong>"</span>}
+            {filterQ.trim()&&<span style={{marginLeft:6,color:'var(--sub)',fontWeight:400}}>· Contains: <strong style={{color:'#3b82f6'}}>{filterQ.split('\n').map(s=>s.trim()).filter(Boolean).join(', ')}</strong></span>}
+            {excludeQ.trim()&&<span style={{marginLeft:6,color:'var(--sub)',fontWeight:400}}>· Excludes: <strong style={{color:'#ef4444'}}>{excludeQ.split('\n').map(s=>s.trim()).filter(Boolean).join(', ')}</strong></span>}
             {catFilter!=='All'&&<span style={{marginLeft:6,color:'var(--sub)',fontWeight:400}}>· Category: <strong style={{color:'var(--tx)'}}>{catFilter}</strong></span>}
           </div>
         )}
