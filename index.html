@@ -20,7 +20,8 @@
 <style>
 body{background:var(--bg,#f8fafc);color:var(--tx,#0f172a);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:0}
 .dark body,body.dark{--bg:#0f172a;--card:#1e293b;--tx:#f1f5f9;--sub:#94a3b8;--bdr:#334155}
-:root{--bg:#f8fafc;--card:#ffffff;--tx:#0f172a;--sub:#64748b;--bdr:#e2e8f0}
+:root{--bg:#f8fafc;--card:#ffffff;--tx:#0f172a;--sub:#64748b;--bdr:#e2e8f0;--acc:#3b82f6}
+.dark body,body.dark{--acc:#60a5fa}
 .card{background:var(--card);border:1px solid var(--bdr)}
 .gain{color:#22c55e}.loss{color:#ef4444}.neutral{color:#94a3b8}
 .bg-gain{background:#dcfce7;color:#166534}.bg-loss{background:#fee2e2;color:#991b1b}.bg-neut{background:#f1f5f9;color:#475569}
@@ -72,27 +73,71 @@ input,select,textarea{background:var(--card);color:var(--tx);border:1px solid va
 .count-anim{animation:countUp .5s ease both}
 .pos-badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700}
 .heatmap-cell{border-radius:4px;padding:2px 6px;display:inline-block;font-weight:600}
-/* Login screen */
-.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0f172a 0%,#1e293b 60%,#431407 100%)}
+/* ── #1 Login screen ── */
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0f172a 0%,#1e293b 60%,#431407 100%);padding:16px;box-sizing:border-box}
 .login-card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:36px 32px;width:100%;max-width:360px;backdrop-filter:blur(12px)}
-/* Responsive header controls */
+/* ── #2 Header controls ── */
 .hdr-controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.hdr-input{padding:5px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.1);color:#fff;font-size:11px;outline:none}
+.hdr-input{padding:5px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.1);color:#fff;font-size:11px;outline:none;min-height:30px}
 .hdr-input option{background:#1e293b;color:#fff}
 .hdr-label{font-size:10px;font-weight:600;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.05em}
-.apply-btn{padding:6px 14px;border-radius:8px;background:#ff6600;color:#fff;border:none;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap}
+.apply-btn{padding:8px 16px;border-radius:8px;background:#ff6600;color:#fff;border:none;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;min-height:36px;touch-action:manipulation}
 .apply-btn:disabled{opacity:.5;cursor:not-allowed}
-/* Responsive tables */
-.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
-/* Mobile responsiveness */
+/* ── #3 Progress bar (top loading stripe) ── */
+.progress-bar{position:fixed;top:0;left:0;right:0;height:3px;z-index:9999;overflow:hidden;pointer-events:none}
+@keyframes progress-slide{0%{transform:translateX(-100%) scaleX(.4)}50%{transform:translateX(20%) scaleX(.8)}100%{transform:translateX(100%) scaleX(.4)}}
+.progress-bar-inner{height:100%;width:100%;background:linear-gradient(90deg,transparent,#ff6600 30%,#ff9f4a 60%,transparent);animation:progress-slide 1.2s ease-in-out infinite}
+/* ── #4 Sticky table headers ── */
+.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;position:relative}
+.tbl-wrap table thead th,.tbl-wrap thead th{position:sticky;top:0;background:var(--card);z-index:2;box-shadow:0 1px 0 var(--bdr)}
+.dark .tbl-wrap table thead th,.dark .tbl-wrap thead th{background:#1e293b}
+/* ── #5 Swipe hint for tables ── */
+.swipe-hint{display:none;font-size:10px;color:var(--sub);text-align:right;padding:2px 0 6px;font-style:italic;opacity:.7}
+/* ── #6 Skeleton cards ── */
+@keyframes skel-anim{0%{background-position:-200% 0}100%{background-position:200% 0}}
+.skel{border-radius:6px;background:linear-gradient(90deg,var(--bdr) 25%,rgba(148,163,184,.1) 50%,var(--bdr) 75%);background-size:200% 100%;animation:skel-anim 1.5s infinite}
+.skel-h{height:14px;margin-bottom:8px}.skel-sm{height:10px;width:60%;margin-bottom:6px}.skel-num{height:32px;width:72px;border-radius:8px}
+/* ── #7 Mobile bottom nav ── */
+.mob-nav{display:none;position:fixed;bottom:0;left:0;right:0;height:58px;background:var(--card);border-top:1px solid var(--bdr);z-index:499;align-items:stretch;box-shadow:0 -2px 16px rgba(0,0,0,.08)}
+.mob-nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:none;background:transparent;cursor:pointer;padding:4px 2px;color:var(--sub);font-size:9px;font-weight:700;position:relative;transition:color .15s;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.mob-nav-btn.mob-active{color:#ff6600}
+.mob-nav-btn .mn-icon{font-size:17px;line-height:1.3;display:block}
+.mob-nav-btn .mn-badge{position:absolute;top:4px;right:calc(50% - 18px);background:#ef4444;color:#fff;font-size:8px;font-weight:800;border-radius:8px;padding:1px 4px;min-width:14px;text-align:center;line-height:1.4}
+/* ── #8 Responsive filter grid ── */
+.filter-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+/* ── #9 Touch targets & tap feel ── */
+button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+/* ── #10 Dark mode input fix ── */
+.dark input,.dark select,.dark textarea{background:#0f172a;border-color:#334155;color:#f1f5f9}
+.dark .card:hover{box-shadow:0 4px 28px rgba(0,0,0,.35)}
+/* ── #11 Keyboard focus accessibility ── */
+*:focus-visible{outline:2px solid #ff6600;outline-offset:2px;border-radius:3px}
+/* ── #12 Metric card accent bar ── */
+.mcard-clicks::after{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:12px 12px 0 0}
+.mcard-impr::after{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#8b5cf6,#a78bfa);border-radius:12px 12px 0 0}
+.mcard-ctr::after{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#22c55e,#4ade80);border-radius:12px 12px 0 0}
+.mcard-pos::after{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#f59e0b,#fbbf24);border-radius:12px 12px 0 0}
+/* ── Mobile responsiveness ── */
 @media(max-width:640px){
+  body{padding-bottom:62px}
   .hdr-controls{display:none}
-  .hdr-controls.open{display:flex;flex-direction:column;align-items:stretch;position:absolute;top:100%;left:0;right:0;background:linear-gradient(180deg,#1e293b,#0f172a);padding:12px 16px;z-index:100;gap:8px}
+  .hdr-controls.open{display:flex;flex-direction:column;align-items:stretch;position:absolute;top:100%;left:0;right:0;background:linear-gradient(180deg,#1e293b 0%,#0f172a 100%);padding:14px 16px;z-index:100;gap:10px;animation:fi .2s ease;box-shadow:0 8px 24px rgba(0,0,0,.4)}
   .hdr-hamburger{display:flex!important}
   .metric-grid{grid-template-columns:1fr 1fr!important}
   .mobile-hide{display:none!important}
+  .mob-nav{display:flex}
+  .back-to-top{bottom:70px;right:14px;width:38px;height:38px}
+  .copy-toast{bottom:70px}
+  .filter-grid{grid-template-columns:1fr!important}
+  .swipe-hint{display:block}
+  .login-card{padding:26px 20px}
+}
+@media(max-width:380px){
+  .src-btn{padding:5px 10px;font-size:11px}
+  .apply-btn{padding:7px 10px;font-size:11px}
 }
 @media(min-width:641px){.hdr-hamburger{display:none!important}}
+@media print{.mob-nav,.back-to-top,.progress-bar,.hdr-hamburger{display:none!important};body{padding-bottom:0}}
 </style>
 </head>
 <body>
@@ -326,7 +371,8 @@ function SVGChart({data,title,series,height=180}){
   );
 }
 
-/* ─── METRIC CARD ─── */
+/* ─── METRIC CARD (#12 accent bar, #17 improved layout) ─── */
+const MCARD_ACCENT={'Total Clicks':'mcard-clicks','Total Impressions':'mcard-impr','Avg CTR':'mcard-ctr','Avg Position':'mcard-pos'};
 function MCard({label,curr,prev,fmt:fmtFn=fmt,icon,invert=false,ctrRing=false}){
   const animated=useCountUp(typeof curr==='number'?curr:null);
   const displayVal=typeof curr==='number'?animated:curr;
@@ -335,15 +381,21 @@ function MCard({label,curr,prev,fmt:fmtFn=fmt,icon,invert=false,ctrRing=false}){
   const up=invert?(diff<0):(diff>0);
   const arrow=diff>0?'↑':diff<0?'↓':'→';
   const cls=diff==null?'neutral':up?'gain':'loss';
+  const acl=MCARD_ACCENT[label]||'';
   return(
-    <div className="card rounded-xl p-5 fi">
+    <div className={`card rounded-xl p-5 fi ${acl}`} style={{position:'relative'}}>
       <div className="flex justify-between items-start mb-3">
-        <div className="text-xs font-semibold uppercase tracking-wide" style={{color:'var(--sub)'}}>{label}</div>
-        {ctrRing?<CTRRing value={curr}/>:<div className="text-xl">{icon}</div>}
+        <div className="text-xs font-semibold uppercase tracking-wide" style={{color:'var(--sub)',letterSpacing:'.06em'}}>{label}</div>
+        {ctrRing?<CTRRing value={curr}/>:<div style={{fontSize:22,lineHeight:1}}>{icon}</div>}
       </div>
-      <div className="text-2xl font-bold mb-1 count-anim">{fmtFn(displayVal)}</div>
-      {diff!=null&&<div className={`text-sm ${cls} flex items-center gap-1`}>{arrow} {sign(diff)}{pct!=null?pct.toFixed(1)+'%':''}<span style={{color:'var(--sub)',fontWeight:400}}> vs prev</span></div>}
-      {prev!=null&&<div className="text-xs mt-1" style={{color:'var(--sub)'}}>Prev: {fmtFn(prev)}</div>}
+      <div className="text-2xl font-bold mb-1 count-anim" style={{letterSpacing:'-.02em'}}>{fmtFn(displayVal)}</div>
+      {diff!=null&&(
+        <div className={`text-sm ${cls} flex items-center gap-1`} style={{fontWeight:600}}>
+          {arrow} {sign(diff)}{pct!=null?pct.toFixed(1)+'%':''}
+          <span style={{color:'var(--sub)',fontWeight:400,fontSize:11}}> vs prev</span>
+        </div>
+      )}
+      {prev!=null&&<div className="text-xs mt-1" style={{color:'var(--sub)'}}>{fmtFn(prev)} prev period</div>}
     </div>
   );
 }
@@ -391,7 +443,8 @@ function STable({cols,rows,defaultSort,defaultDir='desc',perPageOpts=[10,25,50,1
           </select>
         </div>
       </div>
-      <div className="overflow-x-auto" style={{borderRadius:8,border:'1px solid var(--bdr)'}}>
+      <div className="swipe-hint">← swipe table to see all columns →</div>
+      <div className="tbl-wrap" style={{borderRadius:8,border:'1px solid var(--bdr)',maxHeight:520,overflowY:'auto'}}>
         <table className="w-full text-sm">
           <thead>
             <tr style={{borderBottom:'1px solid var(--bdr)'}}>
@@ -403,19 +456,30 @@ function STable({cols,rows,defaultSort,defaultDir='desc',perPageOpts=[10,25,50,1
             </tr>
           </thead>
           <tbody>
-            {slice.map((r,i)=>(
-              <tr key={i} className="row-hover" style={{borderBottom:'1px solid var(--bdr)'}}>
-                {cols.map((c,ci)=><td key={c.key} className={`py-2 px-3${ci===0?' sticky-col':''}`}>{c.render?c.render(r[c.key],r):r[c.key]}</td>)}
-              </tr>
-            ))}
+            {slice.length===0
+              ?<tr><td colSpan={cols.length} style={{padding:'32px 16px',textAlign:'center',color:'var(--sub)',fontSize:13}}>
+                  <div style={{fontSize:32,marginBottom:8}}>🔍</div>
+                  <div style={{fontWeight:600,marginBottom:4}}>No results found</div>
+                  <div style={{fontSize:11}}>Try adjusting your search or filters</div>
+                </td></tr>
+              :slice.map((r,i)=>(
+                <tr key={i} className="row-hover" style={{borderBottom:'1px solid var(--bdr)'}}>
+                  {cols.map((c,ci)=><td key={c.key} className={`py-2 px-3${ci===0?' sticky-col':''}`}>{c.render?c.render(r[c.key],r):r[c.key]}</td>)}
+                </tr>
+              ))
+            }
           </tbody>
         </table>
       </div>
       {pages>1&&(
-        <div className="flex items-center gap-2 mt-3 text-sm" style={{color:'var(--sub)'}}>
+        <div className="flex items-center gap-2 mt-3 text-sm flex-wrap" style={{color:'var(--sub)'}}>
+          <button className="px-2 py-1 rounded card" onClick={()=>setPg(0)} disabled={pg===0} title="First page">«</button>
           <button className="px-2 py-1 rounded card" onClick={()=>setPg(p=>Math.max(0,p-1))} disabled={pg===0}>‹ Prev</button>
-          <span>Page {pg+1} of {pages}</span>
+          <span style={{fontSize:12}}>
+            {(pg*per+1).toLocaleString()}–{Math.min((pg+1)*per,total).toLocaleString()} of <strong>{total.toLocaleString()}</strong>
+          </span>
           <button className="px-2 py-1 rounded card" onClick={()=>setPg(p=>Math.min(pages-1,p+1))} disabled={pg===pages-1}>Next ›</button>
+          <button className="px-2 py-1 rounded card" onClick={()=>setPg(pages-1)} disabled={pg===pages-1} title="Last page">»</button>
         </div>
       )}
     </div>
@@ -517,6 +581,38 @@ function BackToTop(){
   );
 }
 
+/* ─── PROGRESS BAR (#3) ─── */
+function ProgressBar({active}){
+  if(!active) return null;
+  return <div className="progress-bar"><div className="progress-bar-inner"/></div>;
+}
+
+/* ─── MOBILE BOTTOM NAV (#7) ─── */
+function MobileBottomNav({tab,onTabChange,alertCount,decayCount}){
+  const items=[
+    {id:'overview',icon:'🏠',label:'Home'},
+    {id:'pages',icon:'📄',label:'Pages'},
+    {id:'keywords',icon:'🔑',label:'Keywords'},
+    {id:'alerts',icon:'🚨',label:'Alerts',badge:alertCount},
+    {id:'decay',icon:'📉',label:'Decay',badge:decayCount},
+  ];
+  return(
+    <nav className="mob-nav" role="navigation" aria-label="Main navigation">
+      {items.map(it=>(
+        <button key={it.id}
+          className={`mob-nav-btn${tab===it.id?' mob-active':''}`}
+          onClick={()=>onTabChange(it.id)}
+          aria-label={it.label}
+          aria-current={tab===it.id?'page':undefined}>
+          <span className="mn-icon" aria-hidden="true">{it.icon}</span>
+          {it.badge>0&&<span className="mn-badge">{it.badge>9?'9+':it.badge}</span>}
+          <span>{it.label}</span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
 /* ─── CATEGORIES for filter ─── */
 const ALL_CATS=['All','Credit Cards','Personal Loan','Home Loan','Vehicle Loan','Insurance','Gold Rate','Fuel Price','Fixed Deposit','Savings Account','IFSC','Tax / ITR','Calculators','Credit Score','PAN Card','Investments','Education Loan','Business Loan','Other'];
 
@@ -574,7 +670,7 @@ function OverviewPage({cp,ck,label}){
       {/* ── FILTER BAR ── */}
       <div className="card rounded-xl px-4 py-3" style={{border:isFiltered?'1px solid rgba(59,130,246,.4)':'1px solid var(--bdr)'}}>
         {/* Row 1: Include + Exclude textareas */}
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:10}}>
+        <div className="filter-grid" style={{marginBottom:10}}>
           {/* URLs Containing */}
           <div>
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
@@ -2472,6 +2568,7 @@ function App(){
 
   return(
     <div className={dark?'dark':''} style={{minHeight:'100vh'}}>
+      <ProgressBar active={refetching}/>
       <header style={{position:'sticky',top:0,zIndex:50,background:'linear-gradient(90deg,#0f172a 0%,#1e293b 60%,#431407 100%)',boxShadow:'0 2px 20px rgba(0,0,0,.4)',borderBottom:'1px solid rgba(255,102,0,.25)'}}>
         <div style={{maxWidth:1280,margin:'0 auto',padding:'0 16px',display:'flex',alignItems:'center',gap:10,height:54}}>
           <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
@@ -2571,7 +2668,7 @@ function App(){
         )}
       </header>
 
-      <main style={{maxWidth:1280,margin:'0 auto',padding:'24px 16px'}}>
+      <main key={tab} className="tab-slide" style={{maxWidth:1280,margin:'0 auto',padding:'24px 16px'}}>
         {src==='ahrefs'&&(
           <>
             {tab==='connect'||(!ahrefsData&&tab!=='connect')
@@ -2590,9 +2687,17 @@ function App(){
         )}
       </main>
 
-      <footer style={{textAlign:'center',padding:'16px',fontSize:12,color:'var(--sub)'}}>
-        GSC Analytics Pro · BankBazaar.com · {label}
+      <footer style={{textAlign:'center',padding:'16px 16px 20px',fontSize:12,color:'var(--sub)',borderTop:'1px solid var(--bdr)',marginTop:8}}>
+        <span style={{fontWeight:600}}>GSC Analytics Pro</span> · BankBazaar.com
+        {label&&<span style={{marginLeft:6,opacity:.6}}>· {label}</span>}
       </footer>
+      <BackToTop/>
+      <MobileBottomNav
+        tab={tab}
+        onTabChange={t=>{setTab(t);setMobileMenuOpen(false);}}
+        alertCount={alertCount}
+        decayCount={decayCount}
+      />
     </div>
   );
 }
