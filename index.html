@@ -2560,4 +2560,48 @@ function App(){
             </div>
             {preset==='custom'&&(
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-                <div><span className="hdr-label">Current Start</span><input className="hdr-input" type="date" value={editDates.s} onChange={e=>setE
+                <div><span className="hdr-label">Current Start</span><input className="hdr-input" type="date" value={editDates.s} onChange={e=>setEditDates(d=>({...d,s:e.target.value}))} style={{width:'100%',marginTop:4}}/></div>
+                <div><span className="hdr-label">Current End</span><input className="hdr-input" type="date" value={editDates.e} onChange={e=>setEditDates(d=>({...d,e:e.target.value}))} style={{width:'100%',marginTop:4}}/></div>
+                <div><span className="hdr-label">Compare Start</span><input className="hdr-input" type="date" value={editDates.ps} onChange={e=>setEditDates(d=>({...d,ps:e.target.value}))} style={{width:'100%',marginTop:4}}/></div>
+                <div><span className="hdr-label">Compare End</span><input className="hdr-input" type="date" value={editDates.pe} onChange={e=>setEditDates(d=>({...d,pe:e.target.value}))} style={{width:'100%',marginTop:4}}/></div>
+              </div>
+            )}
+            <button className="apply-btn" onClick={applyChanges} disabled={refetching} style={{width:'100%'}}>{refetching?'⟳ Loading':'Apply'}</button>
+          </div>
+        )}
+      </header>
+
+      <main style={{maxWidth:1280,margin:'0 auto',padding:'24px 16px'}}>
+        {src==='ahrefs'&&(
+          <>
+            {tab==='connect'||(!ahrefsData&&tab!=='connect')
+              ?<ImportPage onLoad={d=>{setAhrefsData(d);setTab('overview');}}/>
+              :renderAnalysis()
+            }
+          </>
+        )}
+        {src==='gsc'&&(
+          <>
+            {!gscData
+              ?<GscOAuthPage onLoad={d=>{if(d._meta){setGscMeta(d._meta);setEditDates({...d._meta.dates});setEditSite(d._meta.site);setPreset('1m');}setGscData(d);setTab('overview');}}/>
+              :renderAnalysis()
+            }
+          </>
+        )}
+      </main>
+
+      <footer style={{textAlign:'center',padding:'16px',fontSize:12,color:'var(--sub)'}}>
+        GSC Analytics Pro · BankBazaar.com · {label}
+      </footer>
+    </div>
+  );
+}
+
+try{
+  ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+}catch(e){
+  document.getElementById('root').innerHTML='<div style="padding:40px;font-family:sans-serif;color:#ef4444"><b>Error:</b> '+e.message+'</div>';
+}
+</script>
+</body>
+</html>
