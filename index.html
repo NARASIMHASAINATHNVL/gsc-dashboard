@@ -1660,17 +1660,17 @@ function GA4Page(){
       scope:'https://www.googleapis.com/auth/analytics.readonly',
       callback:async(resp)=>{
         if(resp.error){setStatus('Auth error: '+resp.error);setStep('idle');return;}
-        setToken(resp.access_token);
-        setStep('properties');setStatus('Fetching GA4 properties...');
+        const tok=resp.access_token;
+        setToken(tok);
+        setStep('properties');setStatus('auto-fetching...');
+        // Try Admin API to list properties; on 403 (API disabled) fall back to manual Property ID entry
         try{
-          const r=await fetch('https://analyticsadmin.googleapis.com/v1beta/accountSummaries',{headers:{Authorization:'Bearer '+resp.access_token}});
+          const r=await fetch('https://analyticsadmin.googleapis.com/v1beta/accountSummaries',{headers:{Authorization:'Bearer '+tok}});
           const d=await r.json();
-          if(!r.ok){
-            const errMsg=d?.error?.message||d?.error?.status||'Unknown API error';
-            const errCode=d?.error?.code||r.status;
-            setStatus('❌ API Error '+errCode+': '+errMsg+(errCode===403?' — Enable "Google Analytics Admin API" in GCP Console (console.cloud.google.com → APIs & Services)':''));
-            setStep('idle');return;
+          if(r.status===403||r.status===404){
+            setProperties([]);setStatus('manual');return;
           }
+          if(!r.ok) throw new Error(d?.error?.message||'Admin API error '+r.status);
           const props=[];
           (d.accountSummaries||[]).forEach(acc=>{
             (acc.propertySummaries||[]).forEach(p=>{
@@ -1679,10 +1679,8 @@ function GA4Page(){
           });
           setProperties(props);
           if(props.length>0){setPropId(props[0].id);setPropName(props[0].name);}
-          if(props.length===0){
-            setStatus('⚠️ 0 properties found — the signed-in Google account has no GA4 properties, or they exist under a different account.');
-          }else{setStatus('✅ '+props.length+' properties found');}
-        }catch(e){setStatus('Error: '+e.message);setStep('idle');}
+          setStatus(props.length>0?'✅ '+props.length+' propert'+(props.length===1?'y':'ies')+' found':'manual');
+        }catch(e){setProperties([]);setStatus('manual');}
       }
     });
     tokenRef.current.requestAccessToken();
@@ -1777,26 +1775,57 @@ function GA4Page(){
     </div>
   );}
 
+  const isManual=status==='manual'||properties.length===0;
   if(step==='properties'){return(
     <div className="card rounded-xl p-6 max-w-lg mx-auto fi" style={{marginTop:40}}>
-      <h2 style={{fontSize:16,fontWeight:700,marginBottom:4}}>Select GA4 Property</h2>
-      <p style={{fontSize:12,color:'var(--sub)',marginBottom:16}}>{status}</p>
-      <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:16,maxHeight:300,overflowY:'auto'}}>
-        {properties.map(p=>(
-          <button key={p.id} onClick={()=>{setPropId(p.id);setPropName(p.name);}} style={{padding:'10px 14px',borderRadius:8,border:'2px solid',borderColor:propId===p.id?'#4285f4':'var(--bdr)',background:propId===p.id?'rgba(66,133,244,.08)':'transparent',textAlign:'left',cursor:'pointer',transition:'all .15s'}}>
-            <div style={{fontWeight:600,fontSize:13}}>{p.name}</div>
-            <div style={{fontSize:11,color:'var(--sub)'}}>{p.account} · ID: {p.id}</div>
+      <h2 style={{fontSize:16,fontWeight:700,marginBottom:12}}>
+        {isManual?'🔑 Enter GA4 Property ID':'Select GA4 Property'}
+      </h2>
+
+      {isManual?(
+        <>
+          <div style={{fontSize:12,padding:'12px 14px',borderRadius:8,background:'rgba(66,133,244,.08)',borderLeft:'3px solid #4285f4',marginBottom:18,lineHeight:1.7,color:'var(--tx)'}}>
+            <strong>No need to enable the Admin API.</strong> Enter your Property ID directly — only <code style={{background:'rgba(0,0,0,.08)',padding:'1px 5px',borderRadius:4}}>analytics.readonly</code> is needed.<br/>
+            <span style={{color:'var(--sub)',fontSize:11,marginTop:4,display:'block'}}>Find it: <strong>GA4 → Admin → Property Settings → Property ID</strong> (a 9–10 digit number)</span>
+          </div>
+          <label style={{fontSize:11,fontWeight:700,color:'var(--sub)',display:'block',marginBottom:6,letterSpacing:'.05em'}}>PROPERTY ID</label>
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="e.g. 123456789"
+            value={propId}
+            autoFocus
+            onChange={e=>{const v=e.target.value.replace(/\D/g,'');setPropId(v);setPropName('Property '+v);}}
+            onKeyDown={e=>e.key==='Enter'&&propId&&fetchData()}
+            style={{width:'100%',padding:'11px 14px',borderRadius:8,border:'2px solid '+(propId?'#4285f4':'var(--bdr)'),background:'var(--card)',color:'var(--tx)',fontSize:18,fontWeight:700,letterSpacing:'.06em',boxSizing:'border-box',marginBottom:6,outline:'none',transition:'border-color .15s'}}
+          />
+          <div style={{fontSize:11,color:'var(--sub)',marginBottom:16}}>Only digits — no "properties/" prefix needed</div>
+        </>
+      ):(
+        <>
+          <p style={{fontSize:12,color:'#22c55e',fontWeight:600,marginBottom:12}}>{status}</p>
+          <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:12,maxHeight:260,overflowY:'auto'}}>
+            {properties.map(p=>(
+              <button key={p.id} onClick={()=>{setPropId(p.id);setPropName(p.name);}} style={{padding:'10px 14px',borderRadius:8,border:'2px solid',borderColor:propId===p.id?'#4285f4':'var(--bdr)',background:propId===p.id?'rgba(66,133,244,.08)':'transparent',textAlign:'left',cursor:'pointer',transition:'all .15s'}}>
+                <div style={{fontWeight:600,fontSize:13}}>{p.name}</div>
+                <div style={{fontSize:11,color:'var(--sub)'}}>{p.account} · ID: {p.id}</div>
+              </button>
+            ))}
+          </div>
+          <button onClick={()=>{setStatus('manual');setPropId('');setPropName('');}} style={{fontSize:11,color:'var(--acc)',background:'none',border:'none',cursor:'pointer',marginBottom:14,padding:0,textDecoration:'underline'}}>
+            Enter Property ID manually instead →
           </button>
-        ))}
-      </div>
+        </>
+      )}
+
       <div style={{marginBottom:16}}>
-        <label style={{fontSize:11,fontWeight:600,color:'var(--sub)',display:'block',marginBottom:6}}>DATE RANGE</label>
-        <select value={dateRange} onChange={e=>setDateRange(e.target.value)} style={{width:'100%',padding:'8px',borderRadius:6,border:'1px solid var(--bdr)',background:'var(--card)',color:'var(--tx)',fontSize:13}}>
+        <label style={{fontSize:11,fontWeight:700,color:'var(--sub)',display:'block',marginBottom:6,letterSpacing:'.05em'}}>DATE RANGE</label>
+        <select value={dateRange} onChange={e=>setDateRange(e.target.value)} style={{width:'100%',padding:'9px',borderRadius:6,border:'1px solid var(--bdr)',background:'var(--card)',color:'var(--tx)',fontSize:13}}>
           {DATE_OPTS.map(o=><option key={o.id} value={o.id}>{o.label}</option>)}
         </select>
       </div>
-      <button onClick={fetchData} disabled={!propId} style={{width:'100%',padding:'10px',borderRadius:8,background:'#4285f4',color:'#fff',border:'none',cursor:'pointer',fontWeight:700,fontSize:14}}>
-        Load Analytics Data →
+      <button onClick={fetchData} disabled={!propId} style={{width:'100%',padding:'12px',borderRadius:8,background:propId?'#4285f4':'var(--bdr)',color:propId?'#fff':'var(--sub)',border:'none',cursor:propId?'pointer':'not-allowed',fontWeight:700,fontSize:14,transition:'all .2s'}}>
+        📊 Load Analytics Data →
       </button>
     </div>
   );}
