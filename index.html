@@ -116,6 +116,22 @@ const bgC=v=>v>0?'bg-gain':v<0?'bg-loss':'bg-neut';
 const sign=v=>v>0?'+':'';
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const shortURL=u=>(u||'').replace(/^https?:\/\/(www\.)?bankbazaar\.com/,'').replace(/\.html$/,'')||'/';
+/* ─── SEARCH INTENT CLASSIFIER ─── */
+function classifyIntent(kw){
+  if(!kw)return'Info';
+  if(/bankbazaar|my account|login|dashboard|portal/i.test(kw))return'Nav';
+  if(/apply|sign.?up|download|open|register|check eligib|calculate|emi calc|get loan|instant|activate/i.test(kw))return'Trans';
+  if(/best|top |compare|vs |review|lowest|highest|offer|rate|interest|return|yield|which/i.test(kw))return'Comm';
+  return'Info';
+}
+const INTENT_COLOR={Info:'#3b82f6',Comm:'#f59e0b',Trans:'#22c55e',Nav:'#8b5cf6'};
+
+/* ─── PATH → TOPIC HELPER ─── */
+const pathToTopic=p=>{const seg=(p||'').split('/').filter(Boolean);const raw=seg[seg.length-1]||seg[0]||'page';return raw.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());};
+
+/* ─── SCHEMA TIP HELPER ─── */
+const schemaTip=url=>{if(/calculat|emi/i.test(url))return'HowTo Schema';if(/rate|interest|price/i.test(url))return'FAQPage Schema';if(/review|compar/i.test(url))return'Review Schema';if(/ifsc|pin|code/i.test(url))return'Dataset Schema';return'FAQPage Schema';};
+
 function dlCSV(rows,cols,name){
   const hdr=cols.map(c=>c.label).join(',');
   const body=rows.map(r=>cols.map(c=>{const v=c.fn(r);return JSON.stringify(v==null?'':v);}).join(',')).join('\n');
@@ -208,7 +224,7 @@ function buildForecast(trend,days=14){
   const ss_res=trend.reduce((s,d,i)=>s+Math.pow(d.cClicks-(slope*i+intercept),2),0);
   const ss_tot=trend.reduce((s,d)=>s+Math.pow(d.cClicks-avgY,2),0);
   const r2=ss_tot===0?0:1-(ss_res/ss_tot);
-  const base=new Date('2026-06-25');
+  const base=new Date();
   const projected=Array.from({length:days},(_,i)=>{
     const x=n+i,v=Math.max(0,Math.round(slope*x+intercept));
     const d=new Date(base);d.setDate(d.getDate()+i+1);
@@ -245,8 +261,8 @@ function computeComp(curr,prev){
      History: 9 months (Jun 2025 – Feb 2026) */
 const _D=window.GSC_DATA||{current:{pages:[],keywords:[]},previous:{pages:[],keywords:[]},history:[]};
 // Map gsc-data.js fields to dashboard format
-const _mapP=p=>({key:p.key,clicks:p.clicks,impressions:p.impressions,ctr:p.ctr,position:p.position});
-const _mapK=k=>({key:k.key,clicks:k.clicks,impressions:k.impressions,ctr:k.ctr,position:k.position});
+const _mapP=p=>({key:p.key,clicks:p.clicks,impressions:p.impressions,ctr:p.ctr,position:p.position,top_kw:p.top_kw||'',kw:p.kw||0,tv:p.tv||0});
+const _mapK=k=>({key:k.key,clicks:k.clicks,impressions:k.impressions,ctr:k.ctr,position:k.position,urls:k.urls||0,top_url:k.top_url||''});
 const SP_C=(_D.current.pages||[]).map(_mapP);
 // Legacy data removed — using window.GSC_DATA
 const SP_P=(_D.previous.pages||[]).map(_mapP);
@@ -258,7 +274,7 @@ const SQ_P=(_D.previous.keywords||[]).map(_mapK);
 function genTrend(){
   const out=[];
   for(let i=27;i>=0;i--){
-    const d=new Date('2026-06-25'); d.setDate(d.getDate()-i);
+    const d=new Date(); d.setDate(d.getDate()-i);
     const lbl=d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
     const dow=d.getDay(); const wknd=(dow===0||dow===6)?0.82:1;
     const jtr=s=>s*(0.88+Math.random()*0.24)*wknd;
@@ -548,45 +564,6 @@ function OverviewPage({cp,ck,label}){
   const topG=useMemo(()=>[...filteredCP].sort((a,b)=>(b.clicksDiff||0)-(a.clicksDiff||0)).filter(p=>(p.clicksDiff||0)>0),[filteredCP]);
   const topL=useMemo(()=>[...filteredCP].sort((a,b)=>(a.clicksDiff||0)-(b.clicksDiff||0)).filter(p=>(p.clicksDiff||0)<0),[filteredCP]);
 
-  const posCliff=useMemo(()=>{
-    const fell3=filteredCP.filter(p=>p.prevPosition!=null&&p.prevPosition<=3&&p.position>3)
-      .sort((a,b)=>b.impressions-a.impressions);
-    const fell10=filteredCP.filter(p=>p.prevPosition!=null&&p.prevPosition>3&&p.prevPosition<=10&&p.position>10)
-      .sort((a,b)=>b.impressions-a.impressions);
-    return{fell3,fell10};
-  },[filteredCP]);
-
-  const impSurge=useMemo(()=>
-    filteredCP.filter(p=>(p.impPct||0)>=30&&p.ctrDiff!=null&&p.ctrDiff<=0&&p.impressions>500)
-      .sort((a,b)=>b.impressions-a.impressions)
-  ,[filteredCP]);
-
-  const newLost=useMemo(()=>{
-    const newPages=filteredCP.filter(p=>(!p.prevImpressions||p.prevImpressions===0)&&p.clicks>0)
-      .sort((a,b)=>b.clicks-a.clicks);
-    const lostPages=filteredCP.filter(p=>(p.prevClicks||0)>0&&p.clicks===0)
-      .sort((a,b)=>(b.prevClicks||0)-(a.prevClicks||0));
-    return{newPages,lostPages};
-  },[filteredCP]);
-
-  const catPerf=useMemo(()=>{
-    const map={};
-    filteredCP.forEach(p=>{
-      const cat=classifyURL(p.key);
-      if(!map[cat]) map[cat]={cat,clicks:0,prevClicks:0,impressions:0,ctrNum:0,ctrDen:0};
-      map[cat].clicks+=p.clicks;
-      map[cat].prevClicks+=(p.prevClicks||0);
-      map[cat].impressions+=p.impressions;
-      map[cat].ctrNum+=p.ctr*p.impressions;
-      map[cat].ctrDen+=p.impressions;
-    });
-    return Object.values(map).map(r=>({
-      ...r,
-      ctr:r.ctrDen>0?r.ctrNum/r.ctrDen:0,
-      clicksPct:r.prevClicks>0?((r.clicks-r.prevClicks)/r.prevClicks)*100:null
-    })).sort((a,b)=>b.clicks-a.clicks);
-  },[filteredCP]);
-
   const isFiltered=filterQ.trim()||excludeQ.trim()||catFilter!=='All';
 
   return(
@@ -709,204 +686,126 @@ function OverviewPage({cp,ck,label}){
           </div>
         </div>
       </div>
-      {/* ── POSITION CLIFF ── */}
-      {(posCliff.fell3.length>0||posCliff.fell10.length>0)&&(
-      <div className="card rounded-xl p-5" style={{border:'1px solid rgba(239,68,68,.25)'}}>
-        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}>
-          <span style={{fontSize:16}}>🪨</span>
-          <h3 className="font-semibold" style={{margin:0,color:'#ef4444'}}>Position Cliff</h3>
-          <span className="text-xs" style={{color:'var(--sub)',fontWeight:400}}>Pages that lost prime SERP real estate — needs immediate content or link action</span>
-          <span style={{marginLeft:'auto',fontSize:11,fontWeight:700,color:'#ef4444',background:'rgba(239,68,68,.1)',padding:'3px 10px',borderRadius:20}}>
-            {posCliff.fell3.length+posCliff.fell10.length} pages
-          </span>
-        </div>
-        <div className="grid md:grid-cols-2 gap-4">
-          {/* Fell out of top 3 */}
-          <div>
-            <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
-              <span style={{fontSize:11,fontWeight:700,color:'#fff',background:'#ef4444',padding:'2px 8px',borderRadius:10}}>TOP 3 → LOST</span>
-              <span style={{fontSize:11,color:'var(--sub)'}}>{posCliff.fell3.length} pages · was ≤3, now &gt;3</span>
-            </div>
-            <div style={{maxHeight:280,overflowY:'auto'}}>
-              {posCliff.fell3.length===0
-                ?<div className="text-sm py-4 text-center" style={{color:'var(--sub)'}}>No pages dropped out of top 3.</div>
-                :posCliff.fell3.map((p,i)=>(
-                <div key={i} className="gl-row flex items-center gap-2 border-b last:border-0"
-                  style={{borderColor:'var(--bdr)',cursor:'pointer'}}
-                  onClick={()=>copyURL(p.key)} title={`Click to copy: ${p.key}`}>
-                  <span className="text-xs font-bold" style={{color:'var(--sub)',minWidth:'20px'}}>{i+1}.</span>
-                  <div className="flex-1 text-sm truncate">{shortURL(p.key)}</div>
-                  <span style={{fontSize:11,color:'#ef4444',fontWeight:700,whiteSpace:'nowrap'}}>
-                    {p.prevPosition.toFixed(1)} → {p.position.toFixed(1)}
-                  </span>
-                  <span style={{fontSize:10,background:'rgba(239,68,68,.1)',color:'#ef4444',padding:'1px 6px',borderRadius:8,whiteSpace:'nowrap'}}>
-                    +{(p.position-p.prevPosition).toFixed(1)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-          {/* Fell out of top 10 */}
-          <div>
-            <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
-              <span style={{fontSize:11,fontWeight:700,color:'#fff',background:'#f97316',padding:'2px 8px',borderRadius:10}}>TOP 10 → LOST</span>
-              <span style={{fontSize:11,color:'var(--sub)'}}>{posCliff.fell10.length} pages · was 4-10, now &gt;10</span>
-            </div>
-            <div style={{maxHeight:280,overflowY:'auto'}}>
-              {posCliff.fell10.length===0
-                ?<div className="text-sm py-4 text-center" style={{color:'var(--sub)'}}>No pages dropped out of top 10.</div>
-                :posCliff.fell10.map((p,i)=>(
-                <div key={i} className="gl-row flex items-center gap-2 border-b last:border-0"
-                  style={{borderColor:'var(--bdr)',cursor:'pointer'}}
-                  onClick={()=>copyURL(p.key)} title={`Click to copy: ${p.key}`}>
-                  <span className="text-xs font-bold" style={{color:'var(--sub)',minWidth:'20px'}}>{i+1}.</span>
-                  <div className="flex-1 text-sm truncate">{shortURL(p.key)}</div>
-                  <span style={{fontSize:11,color:'#f97316',fontWeight:700,whiteSpace:'nowrap'}}>
-                    {p.prevPosition.toFixed(1)} → {p.position.toFixed(1)}
-                  </span>
-                  <span style={{fontSize:10,background:'rgba(249,115,22,.1)',color:'#f97316',padding:'1px 6px',borderRadius:8,whiteSpace:'nowrap'}}>
-                    +{(p.position-p.prevPosition).toFixed(1)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-      )}
-
-      {/* ── IMPRESSION SURGE / NO CLICKS ── */}
-      {impSurge.length>0&&(
-      <div className="card rounded-xl p-5" style={{border:'1px solid rgba(249,115,22,.25)'}}>
-        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
-          <span style={{fontSize:16}}>📡</span>
-          <h3 className="font-semibold" style={{margin:0,color:'#f97316'}}>Impression surge — no clicks</h3>
-          <span className="text-xs" style={{color:'var(--sub)',fontWeight:400}}>Impressions grew 30%+ but CTR dropped or flat — title/meta rewrite needed</span>
-          <span style={{marginLeft:'auto',fontSize:11,fontWeight:700,color:'#f97316',background:'rgba(249,115,22,.1)',padding:'3px 10px',borderRadius:20}}>{impSurge.length} pages</span>
-        </div>
-        <div style={{maxHeight:260,overflowY:'auto'}}>
-          <div style={{display:'grid',gridTemplateColumns:'1fr auto auto auto auto',gap:'4px 12px',alignItems:'center',fontSize:11,fontWeight:700,color:'var(--sub)',padding:'0 4px 6px',borderBottom:'1px solid var(--bdr)'}}>
-            <span>Page</span><span>Impr</span><span>Impr Δ</span><span>CTR (cur)</span><span>CTR Δ</span>
-          </div>
-          {impSurge.map((p,i)=>(
-            <div key={i} style={{display:'grid',gridTemplateColumns:'1fr auto auto auto auto',gap:'4px 12px',alignItems:'center',padding:'5px 4px',borderBottom:'1px solid var(--bdr)',cursor:'pointer'}}
-              onClick={()=>copyURL(p.key)} title={`Click to copy: ${p.key}`}>
-              <div className="text-sm truncate">{shortURL(p.key)}</div>
-              <span style={{fontSize:11,color:'var(--tx)',whiteSpace:'nowrap'}}>{fmt(p.impressions)}</span>
-              <span style={{fontSize:11,fontWeight:700,color:'#22c55e',whiteSpace:'nowrap'}}>+{p.impPct.toFixed(0)}%</span>
-              <span style={{fontSize:11,color:'var(--tx)',whiteSpace:'nowrap'}}>{fmtP(p.ctr)}</span>
-              <span style={{fontSize:11,fontWeight:700,color:'#ef4444',whiteSpace:'nowrap'}}>{p.ctrDiff===0?'flat':((p.ctrDiff||0)*100).toFixed(2)+'%'}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-      )}
-
-      {/* ── NEW vs LOST PAGES ── */}
-      {(newLost.newPages.length>0||newLost.lostPages.length>0)&&(
-      <div className="card rounded-xl p-5" style={{border:'1px solid rgba(99,102,241,.25)'}}>
-        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}>
-          <span style={{fontSize:16}}>🔄</span>
-          <h3 className="font-semibold" style={{margin:0,color:'#6366f1'}}>New vs lost pages</h3>
-          <span className="text-xs" style={{color:'var(--sub)',fontWeight:400}}>New content gaining clicks vs pages that dropped to zero</span>
-        </div>
-        <div className="grid md:grid-cols-2 gap-4">
-          <div>
-            <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
-              <span style={{fontSize:11,fontWeight:700,color:'#fff',background:'#22c55e',padding:'2px 8px',borderRadius:10}}>NEW ✦</span>
-              <span style={{fontSize:11,color:'var(--sub)'}}>{newLost.newPages.length} pages · first clicks this period</span>
-            </div>
-            <div style={{maxHeight:260,overflowY:'auto'}}>
-              {newLost.newPages.length===0
-                ?<div className="text-sm py-4 text-center" style={{color:'var(--sub)'}}>No new pages this period.</div>
-                :newLost.newPages.map((p,i)=>(
-                <div key={i} className="gl-row flex items-center gap-2 border-b last:border-0"
-                  style={{borderColor:'var(--bdr)',cursor:'pointer'}}
-                  onClick={()=>copyURL(p.key)} title={`Click to copy: ${p.key}`}>
-                  <span className="text-xs font-bold" style={{color:'var(--sub)',minWidth:'20px'}}>{i+1}.</span>
-                  <div className="flex-1 text-sm truncate">{shortURL(p.key)}</div>
-                  <span style={{fontSize:11,fontWeight:700,color:'#22c55e',whiteSpace:'nowrap'}}>{fmt(p.clicks)} clicks</span>
-                  <span style={{fontSize:10,color:'var(--sub)',whiteSpace:'nowrap'}}>pos {p.position.toFixed(1)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
-              <span style={{fontSize:11,fontWeight:700,color:'#fff',background:'#6366f1',padding:'2px 8px',borderRadius:10}}>LOST ✦</span>
-              <span style={{fontSize:11,color:'var(--sub)'}}>{newLost.lostPages.length} pages · had clicks, now zero</span>
-            </div>
-            <div style={{maxHeight:260,overflowY:'auto'}}>
-              {newLost.lostPages.length===0
-                ?<div className="text-sm py-4 text-center" style={{color:'var(--sub)'}}>No lost pages this period.</div>
-                :newLost.lostPages.map((p,i)=>(
-                <div key={i} className="gl-row flex items-center gap-2 border-b last:border-0"
-                  style={{borderColor:'var(--bdr)',cursor:'pointer'}}
-                  onClick={()=>copyURL(p.key)} title={`Click to copy: ${p.key}`}>
-                  <span className="text-xs font-bold" style={{color:'var(--sub)',minWidth:'20px'}}>{i+1}.</span>
-                  <div className="flex-1 text-sm truncate">{shortURL(p.key)}</div>
-                  <span style={{fontSize:11,fontWeight:700,color:'#6366f1',whiteSpace:'nowrap'}}>was {fmt(p.prevClicks)} clicks</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-      )}
-
-      {/* ── CATEGORY PERFORMANCE ── */}
-      {catPerf.length>0&&(
-      <div className="card rounded-xl p-5">
-        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
-          <span style={{fontSize:16}}>📊</span>
-          <h3 className="font-semibold" style={{margin:0}}>Category performance</h3>
-          <span className="text-xs" style={{color:'var(--sub)',fontWeight:400}}>Clicks, impressions, CTR and trend by URL category</span>
-        </div>
-        <div style={{overflowX:'auto'}}>
-          <table style={{width:'100%',fontSize:12,borderCollapse:'collapse'}}>
-            <thead>
-              <tr style={{borderBottom:'1px solid var(--bdr)'}}>
-                {['Category','Clicks','vs Prev','Impressions','Avg CTR','Pages'].map(h=>(
-                  <th key={h} style={{textAlign:h==='Category'?'left':'right',padding:'4px 8px',fontWeight:700,color:'var(--sub)',whiteSpace:'nowrap'}}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {catPerf.map((r,i)=>{
-                const pct=r.clicksPct;
-                const pctColor=pct==null?'var(--sub)':pct>0?'#22c55e':'#ef4444';
-                const pages=filteredCP.filter(p=>classifyURL(p.key)===r.cat).length;
-                return(
-                <tr key={i} style={{borderBottom:'1px solid var(--bdr)'}}>
-                  <td style={{padding:'6px 8px',fontWeight:500,color:'var(--tx)'}}>{r.cat}</td>
-                  <td style={{padding:'6px 8px',textAlign:'right',color:'var(--tx)'}}>{fmt(r.clicks)}</td>
-                  <td style={{padding:'6px 8px',textAlign:'right',fontWeight:700,color:pctColor}}>
-                    {pct==null?'—':(pct>0?'+':'')+pct.toFixed(1)+'%'}
-                  </td>
-                  <td style={{padding:'6px 8px',textAlign:'right',color:'var(--sub)'}}>{fmt(r.impressions)}</td>
-                  <td style={{padding:'6px 8px',textAlign:'right',color:'var(--sub)'}}>{fmtP(r.ctr)}</td>
-                  <td style={{padding:'6px 8px',textAlign:'right',color:'var(--sub)'}}>{pages}</td>
-                </tr>
-              )})}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      )}
-
       <div className="card rounded-xl p-5">
         <SVGChart data={TREND} title="📈 Daily Clicks (28-day trend)" series={[{key:'cClicks',color:'#3b82f6'},{key:'pClicks',color:'#94a3b8'}]}/>
       </div>
+
+      {/* ── IMPRESSION SURGE (#18) ── */}
+      {(()=>{
+        const surgeRows=[...filteredCP].filter(r=>(r.impPct||0)>100&&r.impressions>500).sort((a,b)=>(b.impPct||0)-(a.impPct||0)).slice(0,10);
+        if(!surgeRows.length) return null;
+        return(
+          <div className="card rounded-xl p-5">
+            <h3 className="font-semibold mb-3">🚀 Impression Surge <span style={{fontSize:11,fontWeight:400,color:'var(--sub)'}}>{surgeRows.length} pages · 100%+ impression growth · Schema recommendations</span></h3>
+            <div style={{overflowX:'auto'}}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                <thead><tr>{['Page','Prev Impr','Curr Impr','Impr Δ%','CTR','Pos','Schema Tip'].map(h=><th key={h} style={{textAlign:'left',padding:'6px 8px',borderBottom:'1px solid var(--bdr)',color:'var(--sub)',fontWeight:600,fontSize:11}}>{h}</th>)}</tr></thead>
+                <tbody>{surgeRows.map((r,i)=>(
+                  <tr key={i} style={{borderBottom:'1px solid var(--bdr)'}}>
+                    <td style={{padding:'7px 8px',maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}><a href={r.key} target="_blank" rel="noopener" style={{color:'var(--acc)',textDecoration:'none'}}>{shortURL(r.key)}</a></td>
+                    <td style={{padding:'7px 8px'}}>{fmt(r.prevImpressions||0)}</td>
+                    <td style={{padding:'7px 8px',fontWeight:600}}>{fmt(r.impressions)}</td>
+                    <td style={{padding:'7px 8px'}}><span style={{color:'#22c55e',fontWeight:700}}>+{(r.impPct||0).toFixed(0)}%</span></td>
+                    <td style={{padding:'7px 8px'}}>{fmtP(r.ctr)}</td>
+                    <td style={{padding:'7px 8px'}}><PosBadge pos={r.position}/></td>
+                    <td style={{padding:'7px 8px'}}><span style={{fontSize:10,padding:'2px 8px',borderRadius:10,background:'rgba(139,92,246,.12)',color:'#8b5cf6',fontWeight:600,whiteSpace:'nowrap'}}>{schemaTip(r.key)}</span></td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── NEW vs LOST PAGES with impression mini-bars (#13) ── */}
+      {(()=>{
+        const MiniBar=({prev,curr})=>{const mx=Math.max(prev,curr,1);const ph=Math.round((prev/mx)*26);const ch=Math.round((curr/mx)*26);return(<svg width="42" height="30" style={{display:'block',flexShrink:0}}><rect x="3" y={30-ph} width="13" height={ph} fill="#94a3b8" rx="2"/><rect x="22" y={30-ch} width="13" height={ch} fill="#3b82f6" rx="2"/></svg>);};
+        const newPgs=[...filteredCP].filter(r=>(r.prevImpressions||0)<10&&r.impressions>100).sort((a,b)=>b.impressions-a.impressions).slice(0,15);
+        const lostPgs=[...filteredCP].filter(r=>(r.prevImpressions||0)>200&&r.impressions<10).sort((a,b)=>(b.prevImpressions||0)-(a.prevImpressions||0)).slice(0,10);
+        if(!newPgs.length&&!lostPgs.length) return null;
+        return(
+          <div className="grid md:grid-cols-2 gap-4">
+            {newPgs.length>0&&(
+              <div className="card rounded-xl p-5">
+                <h3 className="font-semibold mb-1" style={{color:'#22c55e'}}>✨ New Pages Gaining Impressions <span style={{fontSize:11,fontWeight:400,color:'var(--sub)'}}>{newPgs.length}</span></h3>
+                <div style={{fontSize:10,color:'var(--sub)',marginBottom:10}}>Grey = prev period · Blue = current</div>
+                <div style={{maxHeight:320,overflowY:'auto'}}>
+                  {newPgs.map((r,i)=>(
+                    <div key={i} style={{display:'flex',alignItems:'center',gap:6,borderBottom:'1px solid var(--bdr)',padding:'4px 0'}}>
+                      <MiniBar prev={r.prevImpressions||0} curr={r.impressions}/>
+                      <div style={{flex:1,fontSize:11,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}><a href={r.key} target="_blank" rel="noopener" style={{color:'var(--tx)',textDecoration:'none'}}>{shortURL(r.key)}</a></div>
+                      <span style={{fontSize:11,fontWeight:700,color:'#22c55e',flexShrink:0}}>{fmt(r.impressions)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {lostPgs.length>0&&(
+              <div className="card rounded-xl p-5">
+                <h3 className="font-semibold mb-1" style={{color:'#ef4444'}}>📉 Pages Losing Visibility <span style={{fontSize:11,fontWeight:400,color:'var(--sub)'}}>{lostPgs.length}</span></h3>
+                <div style={{fontSize:10,color:'var(--sub)',marginBottom:10}}>Grey = prev period · Blue = current</div>
+                <div style={{maxHeight:320,overflowY:'auto'}}>
+                  {lostPgs.map((r,i)=>(
+                    <div key={i} style={{display:'flex',alignItems:'center',gap:6,borderBottom:'1px solid var(--bdr)',padding:'4px 0'}}>
+                      <MiniBar prev={r.prevImpressions||0} curr={r.impressions}/>
+                      <div style={{flex:1,fontSize:11,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}><a href={r.key} target="_blank" rel="noopener" style={{color:'var(--tx)',textDecoration:'none'}}>{shortURL(r.key)}</a></div>
+                      <span style={{fontSize:11,fontWeight:700,color:'#ef4444',flexShrink:0}}>{fmt(r.prevImpressions||0)} → {fmt(r.impressions)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
 
 /* ─── PAGES PAGE ─── */
+/* ─── KEYWORD DRILLDOWN MODAL (#9) ─── */
+function KwDrilldown({page,kwData,onClose}){
+  const path=page.key||'';
+  const seg=path.split('/').filter(Boolean).pop()||'';
+  const kws=kwData.filter(k=>k.top_url&&k.top_url.includes(seg)).slice(0,20);
+  if(page.top_kw&&!kws.find(k=>k.key===page.top_kw))kws.unshift({key:page.top_kw,clicks:page.clicks||0,impressions:page.impressions||0,ctr:page.ctr||0,position:page.position||0});
+  return(
+    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.65)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:'var(--card)',borderRadius:12,padding:24,width:'min(680px,95vw)',maxHeight:'80vh',overflowY:'auto',border:'1px solid var(--bdr)'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:16}}>
+          <div><div style={{fontSize:13,fontWeight:700}}>🔑 Keyword Drilldown</div><div style={{fontSize:11,color:'var(--sub)',wordBreak:'break-all',marginTop:2}}>{path}</div></div>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'var(--tx)',cursor:'pointer',fontSize:20,lineHeight:1,padding:'0 4px'}}>✕</button>
+        </div>
+        {kws.length===0
+          ?<div style={{color:'var(--sub)',fontSize:13,textAlign:'center',padding:'20px 0'}}>No keyword data available for this page in the current dataset.</div>
+          :<table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+            <thead><tr>{['Keyword','Clicks','Impr','CTR','Pos','Intent'].map(h=><th key={h} style={{textAlign:'left',padding:'6px 8px',borderBottom:'1px solid var(--bdr)',color:'var(--sub)',fontWeight:600,fontSize:11}}>{h}</th>)}</tr></thead>
+            <tbody>{kws.map((k,i)=>{const intnt=classifyIntent(k.key);return(
+              <tr key={i} style={{borderBottom:'1px solid var(--bdr)'}}>
+                <td style={{padding:'7px 8px',fontWeight:500,maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{k.key}</td>
+                <td style={{padding:'7px 8px'}}>{fmt(k.clicks)}</td>
+                <td style={{padding:'7px 8px'}}>{fmt(k.impressions)}</td>
+                <td style={{padding:'7px 8px'}}>{k.ctr?(k.ctr*100).toFixed(1)+'%':'—'}</td>
+                <td style={{padding:'7px 8px'}}>{k.position?k.position.toFixed(1):'—'}</td>
+                <td style={{padding:'7px 8px'}}><span style={{fontSize:10,padding:'2px 7px',borderRadius:10,background:INTENT_COLOR[intnt]+'22',color:INTENT_COLOR[intnt],fontWeight:700}}>{intnt}</span></td>
+              </tr>);})}</tbody>
+          </table>}
+      </div>
+    </div>
+  );
+}
+
 function PagesPage({cp}){
   const rows=useMemo(()=>cp.map(r=>({...r,tis:calcTIS(r),group:classifyURL(r.key)})),[cp]);
   const maxClicks=useMemo(()=>Math.max(...rows.map(r=>r.clicks),1),[rows]);
+  const [drillPage,setDrillPage]=useState(null);
+  const [assigns,setAssigns]=useState(()=>{try{return JSON.parse(localStorage.getItem('gsc_assignments')||'{}');}catch(e){return{};}});
+  const setAssign=(key,val)=>{const a={...assigns,[key]:val};setAssigns(a);try{localStorage.setItem('gsc_assignments',JSON.stringify(a));}catch(e){}};
   const cols=[
-    {key:'key',label:'Page',render:(v,r)=><a href={v} target="_blank" className="text-blue-500 hover:underline text-xs">{shortURL(v)}</a>},
+    {key:'key',label:'Page',render:(v,r)=><span style={{display:'flex',alignItems:'center',gap:4}}><button onClick={()=>setDrillPage(r)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--acc)',fontSize:11,textDecoration:'underline',textAlign:'left',padding:0}}>{shortURL(v)}</button><a href={v} target="_blank" rel="noopener" style={{color:'var(--sub)',fontSize:10,flexShrink:0}} title="Open page">↗</a></span>},
+    {key:'top_kw',label:'Top KW',render:v=>v?<span style={{fontSize:10,color:'var(--sub)'}} title={v}>{v.length>22?v.slice(0,22)+'…':v}</span>:<span style={{color:'var(--sub)',fontSize:10}}>—</span>},
+    {key:'kw',label:'KWs',render:v=><span style={{fontSize:11}}>{v||'—'}</span>},
+    {key:'tv',label:'TV',render:v=>v?<span style={{fontSize:11,color:'#22c55e',fontWeight:600}}>{fmt(v)}</span>:<span style={{color:'var(--sub)',fontSize:11}}>—</span>},
     {key:'group',label:'Group',render:v=><span className="text-xs px-2 py-0.5 rounded-full" style={{background:CAT_COLOR[v]||'#94a3b8',color:'#fff'}}>{v}</span>},
     {key:'clicks',label:'Clicks',render:(v)=><span className="heatmap-cell" style={{background:`rgba(59,130,246,${((v/maxClicks)*0.35).toFixed(2)})`,color:'var(--tx)'}}>{fmt(v)}</span>},
     {key:'clicksDiff',label:'Δ Clicks',sortVal:r=>r.clicksDiff,render:(v,r)=><Bdg v={v} fmtFn={fmt}/>},
@@ -922,18 +821,25 @@ function PagesPage({cp}){
       </div>
     ),sortVal:r=>r.tis},
     {key:'_spark',label:'7d',render:(v,r)=><Sparkline r={r}/>,sortVal:null},
+    {key:'_owner',label:'Owner',sortVal:null,render:(v,r)=>(
+      <select value={assigns[r.key]||''} onChange={e=>setAssign(r.key,e.target.value)} style={{fontSize:10,border:'1px solid var(--bdr)',background:'var(--card)',color:'var(--sub)',cursor:'pointer',padding:'2px 4px',borderRadius:4}}>
+        <option value="">—</option>
+        <option>Sai</option><option>Content 1</option><option>Content 2</option><option>SEO 1</option><option>SEO 2</option><option>SEO 3</option><option>Team</option>
+      </select>
+    )},
   ];
   return(
     <div className="card rounded-xl p-5 fi">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="font-bold">📄 Pages Performance</h2>
+        <h2 className="font-bold">📄 Pages Performance <span style={{fontSize:11,fontWeight:400,color:'var(--sub)'}}>— click a page name to see keyword drilldown</span></h2>
         <button className="text-xs px-3 py-1.5 rounded-lg card" onClick={()=>dlCSV(rows,[
-          {label:'Page',fn:r=>r.key},{label:'Group',fn:r=>r.group},{label:'Clicks',fn:r=>r.clicks},{label:'Prev Clicks',fn:r=>r.prevClicks},
+          {label:'Page',fn:r=>r.key},{label:'Top KW',fn:r=>r.top_kw},{label:'KW Count',fn:r=>r.kw},{label:'TV',fn:r=>r.tv},{label:'Group',fn:r=>r.group},{label:'Clicks',fn:r=>r.clicks},{label:'Prev Clicks',fn:r=>r.prevClicks},
           {label:'Click Diff',fn:r=>r.clicksDiff},{label:'Click %',fn:r=>r.clicksPct},{label:'Impressions',fn:r=>r.impressions},
           {label:'CTR',fn:r=>r.ctr},{label:'Position',fn:r=>r.position},{label:'Pos Diff',fn:r=>r.posDiff},{label:'TIS',fn:r=>r.tis}
         ],'pages-report')}>⬇ CSV</button>
       </div>
       <STable cols={cols} rows={rows} defaultSort="clicks" perPageOpts={[10,25,50,100,9999]} defaultPer={25} searchPlaceholder="Search pages..."/>
+      {drillPage&&<KwDrilldown page={drillPage} kwData={SQ_C} onClose={()=>setDrillPage(null)}/>}
     </div>
   );
 }
@@ -950,6 +856,7 @@ function KeywordsPage({ck}){
     {key:'position',label:'Pos',render:v=><PosBadge pos={v}/>},
     {key:'prevPosition',label:'Prev Pos',render:v=>v!=null?<PosBadge pos={v}/>:'—'},
     {key:'posDiff',label:'PosΔ',render:v=><Bdg v={v} fmtFn={n=>sign(n)+n.toFixed(1)}/>},
+    {key:'_intent',label:'Intent',sortVal:r=>classifyIntent(r.key),render:(v,r)=>{const i=classifyIntent(r.key);return<span style={{fontSize:10,padding:'2px 7px',borderRadius:10,background:INTENT_COLOR[i]+'22',color:INTENT_COLOR[i],fontWeight:700}}>{i}</span>;}},
   ];
   return(
     <div className="card rounded-xl p-5 fi">
@@ -1037,12 +944,13 @@ function AlertsPage({cp}){
   if(!alerts.length) return <div className="card rounded-xl p-10 text-center fi" style={{color:'var(--sub)'}}>No significant alerts for this period.</div>;
   return(
     <div className="space-y-3 fi">
-      <div className="flex items-center gap-3 mb-2">
+      <div className="flex items-center gap-3 mb-2 flex-wrap">
         <span className="text-sm font-semibold">{alerts.length} alerts</span>
         {['c','w','o','s'].map(sev=>{
           const n=alerts.filter(a=>a.sev===sev).length;
           return n>0&&<span key={sev} className={`text-xs px-2 py-1 rounded-full ${sev==='c'?'bg-loss':sev==='w'?'text-amber-600 bg-amber-50 dark:bg-amber-900':sev==='s'?'bg-gain':'text-blue-600 bg-blue-50 dark:bg-blue-900'}`}>{alertIcon[sev]} {n} {alertLabel[sev]}</span>;
         })}
+        <button onClick={()=>{const urls=alerts.map(a=>a.page).filter(Boolean).join('\n');navigator.clipboard.writeText(urls).then(()=>alert('✅ '+alerts.length+' URLs copied!')).catch(()=>{});}} style={{marginLeft:'auto',padding:'5px 12px',borderRadius:6,background:'var(--card)',border:'1px solid var(--bdr)',color:'var(--tx)',cursor:'pointer',fontSize:11,fontWeight:600}}>📋 Copy All URLs</button>
       </div>
       {alerts.map((a,i)=>(
         <div key={i} className={`rounded-xl p-4 ${alertStyle[a.sev]}`}>
@@ -1199,6 +1107,7 @@ function ForecastPage({trend}){
   const dir=fc.slope>0?'📈 Uptrend':'📉 Downtrend';
   return(
     <div className="space-y-4 fi">
+      {fc.r2<0.5&&<div style={{background:'#f59e0b18',border:'1px solid #f59e0b',borderRadius:8,padding:'10px 16px',fontSize:12,color:'#f59e0b',display:'flex',gap:8,alignItems:'center'}}>⚠️ Low confidence (R²={fc.r2.toFixed(2)}) — trend is too volatile for reliable forecasting. Use directional guidance only.</div>}
       <div className="grid md:grid-cols-3 gap-4">
         <div className="card rounded-xl p-4 text-center">
           <div className={`text-2xl font-bold ${fc.slope>0?'gain':'loss'}`}>{sign(fc.slope)}{fmt(Math.abs(fc.weeklyChange))}</div>
@@ -1566,12 +1475,15 @@ function ImportPage({onLoad}){
 /* ─── APP ─── */
 /* ─── HISTORY PAGE (monthly GSC performance from gsc-data.js) ─── */
 function HistoryPage(){
-  const hist=(_D.history||[]);
-  if(!hist.length) return <div className="text-center py-20" style={{color:'var(--sub)'}}>No history data available. Refresh gsc-data.js to accumulate snapshots.</div>;
+  const lsSnaps=()=>{try{return JSON.parse(localStorage.getItem('gsc_history_snapshots')||'[]');}catch(e){return[];}};
+  const hist=useMemo(()=>{const base=_D.history||[];const snaps=lsSnaps();const merged=[...base,...snaps].filter((v,i,a)=>a.findIndex(x=>x.date===v.date)===i).sort((a,b)=>a.date.localeCompare(b.date));return merged;},[]);
+  const [yoy,setYoy]=useState(false);
+  if(!hist.length) return <div className="text-center py-20" style={{color:'var(--sub)'}}>No history data available. Connect GSC Live and load data to start accumulating monthly snapshots.</div>;
   const fmtM=d=>{ const [y,m]=d.split('-'); const names=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return names[+m]+' '+y; };
   const latest=hist[hist.length-1];
   const prev=hist[hist.length-2]||latest;
   const pctC=(a,b)=>b?((a-b)/b*100).toFixed(1):null;
+  const findYoY=(entry)=>{const [y,m]=entry.date.split('-');const lyDate=(+y-1)+'-'+m;return hist.find(h=>h.date.startsWith(lyDate));};
   return(
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -1595,20 +1507,29 @@ function HistoryPage(){
         <SVGChart data={hist.map(h=>({date:fmtM(h.date),v:h.impressions}))} title="Monthly Impressions" series={[{key:'v',color:'#8b5cf6'}]} height={200}/>
       </div>
       <div className="card rounded-xl overflow-hidden">
+        <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px',borderBottom:'1px solid var(--bdr)'}}>
+          <span style={{fontWeight:700,fontSize:13}}>Monthly History</span>
+          <span style={{fontSize:11,color:'var(--sub)'}}>{hist.length} snapshots</span>
+          <button onClick={()=>setYoy(y=>!y)} style={{marginLeft:'auto',padding:'4px 12px',borderRadius:20,fontSize:11,fontWeight:700,border:'1px solid '+(yoy?'#8b5cf6':'var(--bdr)'),background:yoy?'rgba(139,92,246,.1)':'transparent',color:yoy?'#8b5cf6':'var(--sub)',cursor:'pointer'}}>YoY {yoy?'ON ✓':'OFF'}</button>
+        </div>
         <table className="w-full text-sm">
           <thead><tr style={{background:'var(--bdr)'}}>
-            {['Month','Clicks','Impressions','CTR %','Avg Position'].map(h=><th key={h} className="px-4 py-2 text-left font-semibold text-xs" style={{color:'var(--sub)'}}>{h}</th>)}
+            {['Month','Clicks','Impressions','CTR %','Avg Position',...(yoy?['YoY Clicks Δ']:[])].map(h=><th key={h} className="px-4 py-2 text-left font-semibold text-xs" style={{color:'var(--sub)'}}>{h}</th>)}
           </tr></thead>
           <tbody>
-            {[...hist].reverse().map((h,i)=>(
+            {[...hist].reverse().map((h,i)=>{
+              const yoyEntry=yoy?findYoY(h):null;
+              const yoyChg=yoyEntry?pctC(h.clicks,yoyEntry.clicks):null;
+              return(
               <tr key={i} className="border-t" style={{borderColor:'var(--bdr)'}}>
                 <td className="px-4 py-2 font-medium">{fmtM(h.date)}</td>
                 <td className="px-4 py-2">{fmt(h.clicks)}</td>
                 <td className="px-4 py-2">{fmt(h.impressions)}</td>
                 <td className="px-4 py-2">{h.ctr.toFixed(2)}%</td>
                 <td className="px-4 py-2">{h.position.toFixed(1)}</td>
-              </tr>
-            ))}
+                {yoy&&<td className="px-4 py-2">{yoyChg!=null?<span className={parseFloat(yoyChg)>=0?'gain text-xs':'loss text-xs'}>{parseFloat(yoyChg)>=0?'▲':'▼'}{Math.abs(yoyChg)}%</span>:<span style={{color:'var(--sub)',fontSize:11}}>—</span>}</td>}
+              </tr>);
+            })}
           </tbody>
         </table>
       </div>
@@ -1648,6 +1569,12 @@ function GA4Page(){
         try{
           const r=await fetch('https://analyticsadmin.googleapis.com/v1beta/accountSummaries',{headers:{Authorization:'Bearer '+resp.access_token}});
           const d=await r.json();
+          if(!r.ok){
+            const errMsg=d?.error?.message||d?.error?.status||'Unknown API error';
+            const errCode=d?.error?.code||r.status;
+            setStatus('❌ API Error '+errCode+': '+errMsg+(errCode===403?' — Enable "Google Analytics Admin API" in GCP Console (console.cloud.google.com → APIs & Services)':''));
+            setStep('idle');return;
+          }
           const props=[];
           (d.accountSummaries||[]).forEach(acc=>{
             (acc.propertySummaries||[]).forEach(p=>{
@@ -1656,7 +1583,9 @@ function GA4Page(){
           });
           setProperties(props);
           if(props.length>0){setPropId(props[0].id);setPropName(props[0].name);}
-          setStatus('✅ '+props.length+' properties found');
+          if(props.length===0){
+            setStatus('⚠️ 0 properties found — the signed-in Google account has no GA4 properties, or they exist under a different account.');
+          }else{setStatus('✅ '+props.length+' properties found');}
         }catch(e){setStatus('Error: '+e.message);setStep('idle');}
       }
     });
@@ -1802,9 +1731,19 @@ function GA4Page(){
             {DATE_OPTS.map(o=><option key={o.id} value={o.id}>{o.label}</option>)}
           </select>
           <button onClick={fetchData} style={{padding:'6px 14px',borderRadius:6,background:'#4285f4',color:'#fff',border:'none',cursor:'pointer',fontWeight:600,fontSize:12}}>Refresh</button>
+          <button onClick={()=>{
+            const csvRows=[['Metric','Value'],['Sessions',overview.sessions],['Users',overview.users],['New Users',overview.newUsers],['Pageviews',overview.pageviews],['Bounce Rate',overview.bounceRate+'%'],['Avg Duration',fmtSec(overview.avgDuration)],['Engagement Rate',overview.engagementRate+'%']];
+            const pageRows=(pages||[]).map(p=>[p.path,p.views,p.users,p.duration+'s',p.bounce+'%']);
+            const all=[...csvRows,[''],['Page','Views','Users','Avg Duration','Bounce Rate'],...pageRows];
+            const csv=all.map(r=>r.map(v=>JSON.stringify(v==null?'':v)).join(',')).join('\n');
+            const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='ga4-report.csv';a.click();
+          }} style={{padding:'6px 12px',borderRadius:6,background:'#22c55e',color:'#fff',border:'none',cursor:'pointer',fontWeight:600,fontSize:12}}>⬇ CSV</button>
           <button onClick={()=>{setStep('idle');setData(null);setToken('');}} style={{padding:'6px 12px',borderRadius:6,border:'1px solid var(--bdr)',background:'transparent',color:'var(--sub)',cursor:'pointer',fontSize:12}}>Disconnect</button>
         </div>
       </div>
+
+      {/* GSC vs GA4 Reconciliation */}
+      {window.__gscTotalClicks&&(()=>{const gscC=window.__gscTotalClicks;const ga4S=overview.sessions||0;const gap=gscC>0?((gscC-ga4S)/gscC*100):0;const col=gap>40?'#ef4444':gap>10?'#f59e0b':'#22c55e';return(<div className="card rounded-xl p-4" style={{borderLeft:'4px solid '+col}}><div style={{fontSize:11,fontWeight:700,color:'var(--sub)',marginBottom:8}}>📊 GSC vs GA4 RECONCILIATION</div><div style={{display:'flex',gap:24,flexWrap:'wrap'}}><div><div style={{fontSize:11,color:'var(--sub)'}}>GSC Clicks</div><div style={{fontSize:20,fontWeight:700}}>{fmt(gscC)}</div></div><div><div style={{fontSize:11,color:'var(--sub)'}}>GA4 Sessions</div><div style={{fontSize:20,fontWeight:700}}>{fmt(ga4S)}</div></div><div><div style={{fontSize:11,color:'var(--sub)'}}>Tracking Gap</div><div style={{fontSize:20,fontWeight:700,color:col}}>{gap.toFixed(1)}%</div></div></div>{gap>40&&<div style={{fontSize:11,color:'#ef4444',marginTop:8}}>⚠️ High gap — audit GA4 tag on pages with most GSC clicks</div>}</div>);})()}
 
       {/* Metric cards */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:12}}>
@@ -1947,6 +1886,7 @@ function CTRGapsPage({cp}){
   const [sortKey,setSortKey]=useState('oppClicks');
   const [sortDir,setSortDir]=useState(-1);
   const [priFilter,setPriFilter]=useState('all');
+  const [expanded,setExpanded]=useState({});
 
   const expCtr=(pos)=>{
     if(pos<=1)return 28;if(pos<=2)return 15;if(pos<=3)return 11;
@@ -2149,9 +2089,20 @@ function CTRGapsPage({cp}){
                         <span style={{color:'#22c55e',fontWeight:800,fontSize:13}}>+{fmt(r.oppClicks)}</span>
                       </td>
                       <td style={{textAlign:'center',padding:'10px 12px'}}>
-                        <span style={{display:'inline-block',padding:'3px 9px',borderRadius:20,background:r.pri.bg,color:r.pri.color,fontWeight:700,fontSize:10,letterSpacing:'.03em',whiteSpace:'nowrap'}}>
-                          {r.pri.lbl}
-                        </span>
+                        <div style={{display:'flex',alignItems:'center',gap:4,justifyContent:'center',flexWrap:'wrap'}}>
+                          <span style={{display:'inline-block',padding:'3px 9px',borderRadius:20,background:r.pri.bg,color:r.pri.color,fontWeight:700,fontSize:10,letterSpacing:'.03em',whiteSpace:'nowrap'}}>
+                            {r.pri.lbl}
+                          </span>
+                          {r.position<=5&&r.ctrPct<r.exp*0.6&&<span style={{fontSize:9,padding:'2px 5px',borderRadius:8,background:'#8b5cf622',color:'#8b5cf6',fontWeight:700,whiteSpace:'nowrap'}} title="Competitor may have Featured Snippet or PAA box stealing clicks">🎯 SERP Risk</span>}
+                          <button onClick={()=>setExpanded(e=>({...e,[r.key]:!e[r.key]}))} style={{fontSize:10,padding:'2px 6px',borderRadius:6,border:'1px solid var(--bdr)',background:'transparent',color:'var(--sub)',cursor:'pointer'}}>💡</button>
+                        </div>
+                        {expanded[r.key]&&(
+                          <div style={{marginTop:6,padding:'8px 10px',background:'rgba(59,130,246,.06)',borderRadius:6,textAlign:'left',fontSize:11,minWidth:200}}>
+                            <div style={{fontWeight:700,color:'#3b82f6',marginBottom:4}}>Title Suggestions:</div>
+                            <div style={{marginBottom:3,color:'var(--tx)'}}>1. Best {pathToTopic(r.key)} in India 2026 – Compare &amp; Apply | BankBazaar</div>
+                            <div style={{color:'var(--tx)'}}>2. {pathToTopic(r.key)}: Check Rates, Eligibility &amp; Apply Instantly | BankBazaar</div>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
@@ -2161,6 +2112,82 @@ function CTRGapsPage({cp}){
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ─── QUICK WINS PAGE (#10) ─── */
+function QuickWinsPage({cp}){
+  const EXP={1:.28,2:.15,3:.11,4:.08,5:.07,6:.055,7:.045,8:.038,9:.032,10:.028};
+  const expCtr=pos=>{const p=Math.round(pos);return p<=10?EXP[p]||.028:p<=15?.015:p<=20?.009:.005;};
+  const wins=useMemo(()=>(cp||[]).map(r=>{const exp=expCtr(r.position);const gap=exp-(r.ctr||0);return{...r,exp,gap,oppClicks:Math.round(gap*r.impressions)};})
+    .filter(r=>r.position>=4&&r.position<=20&&r.impressions>=500&&r.gap>0&&r.clicks>0)
+    .sort((a,b)=>b.oppClicks-a.oppClicks).slice(0,50),[cp]);
+  const totalOpp=wins.reduce((s,r)=>s+r.oppClicks,0);
+  const rec=r=>r.position<=10?'Rewrite title + add FAQ schema':'Build 3 internal links + refresh content';
+  if(!cp||!cp.length)return<div className="text-center py-20" style={{color:'var(--sub)'}}>Load GSC data to see quick wins.</div>;
+  return(
+    <div className="space-y-4 fi">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <div className="card rounded-xl p-4"><div style={{fontSize:11,color:'var(--sub)',fontWeight:600}}>OPPORTUNITY CLICKS</div><div style={{fontSize:28,fontWeight:800,color:'#22c55e'}}>{fmt(totalOpp)}</div><div style={{fontSize:11,color:'var(--sub)'}}>if all CTR gaps were closed</div></div>
+        <div className="card rounded-xl p-4"><div style={{fontSize:11,color:'var(--sub)',fontWeight:600}}>PAGES TO FIX</div><div style={{fontSize:28,fontWeight:800}}>{wins.length}</div><div style={{fontSize:11,color:'var(--sub)'}}>pos 4–20 with CTR gap</div></div>
+        <div className="card rounded-xl p-4"><div style={{fontSize:11,color:'var(--sub)',fontWeight:600}}>AVG OPPORTUNITY</div><div style={{fontSize:28,fontWeight:800,color:'#3b82f6'}}>{wins.length?fmt(Math.round(totalOpp/wins.length)):0}</div><div style={{fontSize:11,color:'var(--sub)'}}>clicks/page</div></div>
+      </div>
+      <div className="card rounded-xl overflow-auto">
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+          <thead><tr style={{borderBottom:'2px solid var(--bdr)'}}>{['#','Page','Pos','CTR','Expected','Gap','Opp. Clicks','Action'].map(h=><th key={h} style={{padding:'10px 12px',textAlign:'left',fontSize:11,fontWeight:700,color:'var(--sub)'}}>{h}</th>)}</tr></thead>
+          <tbody>{wins.map((r,i)=>(
+            <tr key={i} style={{borderBottom:'1px solid var(--bdr)'}}>
+              <td style={{padding:'8px 12px',color:'var(--sub)',fontSize:11}}>{i+1}</td>
+              <td style={{padding:'8px 12px',maxWidth:220,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}><a href={r.key} target="_blank" rel="noopener" style={{color:'var(--acc)',textDecoration:'none',fontSize:11}}>{shortURL(r.key)}</a></td>
+              <td style={{padding:'8px 12px'}}><span style={{fontSize:11,background:'#3b82f622',color:'#3b82f6',padding:'2px 7px',borderRadius:8,fontWeight:700}}>{r.position.toFixed(1)}</span></td>
+              <td style={{padding:'8px 12px',fontSize:11}}>{(r.ctr*100).toFixed(2)}%</td>
+              <td style={{padding:'8px 12px',fontSize:11,color:'var(--sub)'}}>{(r.exp*100).toFixed(2)}%</td>
+              <td style={{padding:'8px 12px'}}><span style={{color:'#ef4444',fontWeight:700,fontSize:11}}>-{(r.gap*100).toFixed(1)}%</span></td>
+              <td style={{padding:'8px 12px'}}><span style={{color:'#22c55e',fontWeight:700,fontSize:12}}>+{fmt(r.oppClicks)}</span></td>
+              <td style={{padding:'8px 12px',fontSize:11,color:'var(--sub)'}}>{rec(r)}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ─── CANNIBALIZATION PAGE (#11) ─── */
+function CannibalizationPage({cp}){
+  const issues=useMemo(()=>{
+    const kwMap={};
+    (cp||[]).forEach(p=>{if(p.top_kw){if(!kwMap[p.top_kw])kwMap[p.top_kw]=[];kwMap[p.top_kw].push(p);}});
+    return Object.entries(kwMap).filter(([,ps])=>ps.length>1)
+      .map(([kw,ps])=>({kw,pages:ps.sort((a,b)=>a.position-b.position),risk:ps.filter(p=>p.position<10).length>=2?'High':'Medium'}))
+      .sort((a,b)=>a.risk==='High'?-1:1);
+  },[cp]);
+  if(!cp||!cp.length)return<div className="text-center py-20" style={{color:'var(--sub)'}}>Load GSC data to check for cannibalization.</div>;
+  if(!issues.length)return(
+    <div className="card rounded-xl p-10 text-center"><div style={{fontSize:48,marginBottom:12}}>✅</div><div style={{fontSize:16,fontWeight:700}}>No Cannibalization Detected</div><div style={{fontSize:13,color:'var(--sub)',marginTop:8}}>No duplicate top-keyword conflicts found across {(cp||[]).length} pages in current dataset.</div></div>
+  );
+  return(
+    <div className="space-y-4 fi">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="card rounded-xl p-4"><div style={{fontSize:11,color:'var(--sub)',fontWeight:600}}>HIGH RISK</div><div style={{fontSize:28,fontWeight:800,color:'#ef4444'}}>{issues.filter(i=>i.risk==='High').length}</div><div style={{fontSize:11,color:'var(--sub)'}}>two pages both in top 10</div></div>
+        <div className="card rounded-xl p-4"><div style={{fontSize:11,color:'var(--sub)',fontWeight:600}}>MEDIUM RISK</div><div style={{fontSize:28,fontWeight:800,color:'#f59e0b'}}>{issues.filter(i=>i.risk==='Medium').length}</div><div style={{fontSize:11,color:'var(--sub)'}}>keyword overlap detected</div></div>
+      </div>
+      <div className="card rounded-xl overflow-auto">
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+          <thead><tr style={{borderBottom:'2px solid var(--bdr)'}}>{['Keyword','Winner Page','Pos','Conflict Page','Pos','Risk'].map(h=><th key={h} style={{padding:'10px 12px',textAlign:'left',fontSize:11,fontWeight:700,color:'var(--sub)'}}>{h}</th>)}</tr></thead>
+          <tbody>{issues.map((it,i)=>(
+            <tr key={i} style={{borderBottom:'1px solid var(--bdr)'}}>
+              <td style={{padding:'8px 12px',fontWeight:600,fontSize:12}}>{it.kw}</td>
+              <td style={{padding:'8px 12px',fontSize:11,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{shortURL(it.pages[0]?.key)}</td>
+              <td style={{padding:'8px 12px'}}><span style={{background:'#22c55e22',color:'#22c55e',padding:'2px 6px',borderRadius:6,fontSize:11,fontWeight:700}}>{it.pages[0]?.position?.toFixed(1)}</span></td>
+              <td style={{padding:'8px 12px',fontSize:11,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{shortURL(it.pages[1]?.key)}</td>
+              <td style={{padding:'8px 12px'}}><span style={{background:'#ef444422',color:'#ef4444',padding:'2px 6px',borderRadius:6,fontSize:11,fontWeight:700}}>{it.pages[1]?.position?.toFixed(1)}</span></td>
+              <td style={{padding:'8px 12px'}}><span style={{background:it.risk==='High'?'#ef444422':'#f59e0b22',color:it.risk==='High'?'#ef4444':'#f59e0b',padding:'2px 8px',borderRadius:8,fontSize:11,fontWeight:700}}>{it.risk}</span></td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -2180,6 +2207,8 @@ const ANALYSIS_TABS=[
   {id:'reports',lbl:'📋 Reports'},
   {id:'analytics',lbl:'📊 GA4 Analytics'},
   {id:'ctr',lbl:'👁 CTR Gaps'},
+  {id:'quickwins',lbl:'⚡ Quick Wins'},
+  {id:'cannibalization',lbl:'⚔️ Cannibal.'},
 ];
 
 /* ─── APP ─── */
@@ -2357,6 +2386,8 @@ function App(){
   const totClicks=useMemo(()=>cp?cp.reduce((s,r)=>s+r.clicks,0):0,[cp]);
   const prevTotClicks=useMemo(()=>cp?cp.reduce((s,r)=>s+(r.prevClicks||0),0):0,[cp]);
   const clickPct=pctC(totClicks,prevTotClicks);
+  // Expose total clicks globally for GA4 reconciliation (#16)
+  useEffect(()=>{if(totClicks>0)window.__gscTotalClicks=totClicks;},[totClicks]);
 
   const PRESETS=[
     {id:'1m',label:'Last 1 Month vs Prev Month'},
@@ -2393,7 +2424,18 @@ function App(){
     try{
       const[pC,pP,qC,qP]=await Promise.all([fetchG(d.s,d.e,'pages'),fetchG(d.ps,d.pe,'pages'),fetchG(d.s,d.e,'queries'),fetchG(d.ps,d.pe,'queries')]);
       setGscMeta(m=>({...m,site:activeSite,dates:d}));
-      setGscData({cp:computeComp(pC,pP),ck:computeComp(qC,qP),label:activeSite+' · '+d.s+' vs '+d.ps,_meta:{token,site:activeSite,sites,dates:d}});
+      const newComp=computeComp(pC,pP);
+      setGscData({cp:newComp,ck:computeComp(qC,qP),label:activeSite+' · '+d.s+' vs '+d.ps,_meta:{token,site:activeSite,sites,dates:d}});
+      // Auto-save monthly snapshot to localStorage (#6)
+      try{
+        const totalC=newComp.reduce((s,r)=>s+r.clicks,0);
+        const totalI=newComp.reduce((s,r)=>s+r.impressions,0);
+        const avgCtr=totalC&&totalI?totalC/totalI:0;
+        const avgPos=newComp.length?newComp.reduce((s,r)=>s+r.position,0)/newComp.length:0;
+        const snap={date:new Date().toISOString().slice(0,7),clicks:totalC,impressions:totalI,ctr:parseFloat((avgCtr*100).toFixed(2)),position:parseFloat(avgPos.toFixed(2))};
+        const existing=JSON.parse(localStorage.getItem('gsc_history_snapshots')||'[]');
+        if(!existing.find(s=>s.date===snap.date)){localStorage.setItem('gsc_history_snapshots',JSON.stringify([...existing,snap].slice(-24)));}
+      }catch(e){}
     }catch(e){alert('GSC error: '+e.message);}
     setRefetching(false);
   };
@@ -2401,6 +2443,8 @@ function App(){
   const renderAnalysis=()=>{
     if(tab==='analytics') return <GA4Page/>;
     if(tab==='ctr') return <CTRGapsPage cp={cp}/>;
+    if(tab==='quickwins') return <QuickWinsPage cp={cp}/>;
+    if(tab==='cannibalization') return <CannibalizationPage cp={cp}/>;
     if(!cp){
       return(
         <div className="text-center py-20" style={{color:'var(--sub)'}}>
@@ -2433,6 +2477,7 @@ function App(){
           <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
             <span style={{background:'#ff6600',color:'#fff',padding:'2px 8px',borderRadius:6,fontSize:11,fontWeight:700}}>GSC PRO</span>
             {cp&&<span style={{fontSize:12,color:'rgba(255,255,255,.65)'}}>{fmt(totClicks)} clicks{clickPct!=null&&<span style={{color:clickPct>0?'#22c55e':'#ef4444'}}> {sign(clickPct)}{clickPct.toFixed(1)}%</span>}</span>}
+            {(()=>{const gen=_D?.meta?.generated;if(!gen)return null;const days=Math.round((Date.now()-new Date(gen).getTime())/86400000);const col=days<=7?'#22c55e':days<=30?'#f59e0b':'#ef4444';return<span style={{fontSize:10,padding:'2px 8px',borderRadius:8,background:col+'33',color:col,fontWeight:700}}>🕐 {days}d ago</span>;})()}
           </div>
           <div style={{display:'flex',gap:4,padding:'3px',borderRadius:8,background:'rgba(255,255,255,.08)'}}>
             <button className={`src-btn ${src==='ahrefs'?'src-on':'src-off'} text-xs`} onClick={()=>{setSrc('ahrefs');setTab('overview');}}>📡 Ahrefs</button>
@@ -2515,48 +2560,4 @@ function App(){
             </div>
             {preset==='custom'&&(
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-                <div><span className="hdr-label">Current Start</span><input className="hdr-input" type="date" value={editDates.s} onChange={e=>setEditDates(d=>({...d,s:e.target.value}))} style={{width:'100%',marginTop:4}}/></div>
-                <div><span className="hdr-label">Current End</span><input className="hdr-input" type="date" value={editDates.e} onChange={e=>setEditDates(d=>({...d,e:e.target.value}))} style={{width:'100%',marginTop:4}}/></div>
-                <div><span className="hdr-label">Compare Start</span><input className="hdr-input" type="date" value={editDates.ps} onChange={e=>setEditDates(d=>({...d,ps:e.target.value}))} style={{width:'100%',marginTop:4}}/></div>
-                <div><span className="hdr-label">Compare End</span><input className="hdr-input" type="date" value={editDates.pe} onChange={e=>setEditDates(d=>({...d,pe:e.target.value}))} style={{width:'100%',marginTop:4}}/></div>
-              </div>
-            )}
-            <button className="apply-btn" onClick={applyChanges} disabled={refetching} style={{width:'100%'}}>{refetching?'⟳ Loading':'Apply'}</button>
-          </div>
-        )}
-      </header>
-
-      <main style={{maxWidth:1280,margin:'0 auto',padding:'24px 16px'}}>
-        {src==='ahrefs'&&(
-          <>
-            {tab==='connect'||(!ahrefsData&&tab!=='connect')
-              ?<ImportPage onLoad={d=>{setAhrefsData(d);setTab('overview');}}/>
-              :renderAnalysis()
-            }
-          </>
-        )}
-        {src==='gsc'&&(
-          <>
-            {!gscData
-              ?<GscOAuthPage onLoad={d=>{if(d._meta){setGscMeta(d._meta);setEditDates({...d._meta.dates});setEditSite(d._meta.site);setPreset('1m');}setGscData(d);setTab('overview');}}/>
-              :renderAnalysis()
-            }
-          </>
-        )}
-      </main>
-
-      <footer style={{textAlign:'center',padding:'16px',fontSize:12,color:'var(--sub)'}}>
-        GSC Analytics Pro · BankBazaar.com · {label}
-      </footer>
-    </div>
-  );
-}
-
-try{
-  ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
-}catch(e){
-  document.getElementById('root').innerHTML='<div style="padding:40px;font-family:sans-serif;color:#ef4444"><b>Error:</b> '+e.message+'</div>';
-}
-</script>
-</body>
-</html>
+                <div><span className="hdr-label">Current Start</span><input className="hdr-input" type="date" value={editDates.s} onChange={e=>setE
